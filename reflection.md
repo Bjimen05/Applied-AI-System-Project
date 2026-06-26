@@ -7,10 +7,21 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+*My initial UML design centered on four classes: `Owner`, `Pet`, `Task`, and `Scheduler`.
+
+- `Owner` holds the owner's name and the total minutes available in a day. It acts as the source of the time constraint that the scheduler must respect.
+- `Pet` holds the pet's name and species. It is associated with an `Owner` and serves as the context for generating a named daily plan.
+- `Task` represents one care activity. It stores a title, duration in minutes, and a priority level (high / medium / low). Priority drives sort order; duration drives how quickly the daily time budget is consumed.
+- `Scheduler` takes an `Owner`, a `Pet`, and a list of `Task` objects. Its `generate_plan()` method sorts tasks by priority (high first), then greedily adds tasks until the owner's available time is exhausted. It returns a list of `(start_time, Task)` tuples that form the daily plan.
+
+I kept the design flat — no inheritance, no abstract base classes — because the scenario called for straightforward scheduling, not a plugin architecture.
+
 **b. Design changes**
 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
+
+*Yes, the design changed once I started implementing. My initial `Scheduler` only sorted by priority, but I realized that two high-priority tasks of very different durations could lead to an unrealistic plan (e.g., a 5-minute feeding and a 60-minute walk both marked high, leaving no room for medium tasks). I added a secondary sort by duration (shorter tasks first among equal priorities) so that the scheduler fits more tasks into the available window before time runs out. This made the output more useful without requiring a new class — just a change to the sort key inside `generate_plan()`.
 
 ---
 

@@ -1,0 +1,69 @@
+classDiagram
+    class Task {
+        +str title
+        +str description
+        +int duration_minutes
+        +str priority
+        +str due_time
+        +bool completed
+        +mark_complete()
+        +priority_rank() int
+        +__repr__() str
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +int age
+        +list tasks
+        +add_task(task)
+        +remove_task(title)
+        +list_tasks() list
+        +get_pending_tasks() list
+        +__repr__() str
+    }
+
+    class Owner {
+        +str name
+        +int available_minutes
+        +str day_start
+        +list pets
+        +add_pet(pet)
+        +remove_pet(name)
+        +list_pets() list
+        +get_all_tasks() list
+        +__repr__() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +collect_tasks() list
+        +generate_plan() DailyPlan
+        +_sort_tasks(tasks) list
+    }
+
+    class ScheduledEntry {
+        +Pet pet
+        +Task task
+        +str start_time
+        +str end_time
+        +__repr__() str
+    }
+
+    class DailyPlan {
+        +Owner owner
+        +list entries
+        +list skipped_tasks
+        +display() str
+        +explain() str
+        +total_time_used() int
+    }
+
+    Owner "1" --> "0..*" Pet : owns
+    Pet "1" --> "0..*" Task : has
+    Owner --> Scheduler : passed to
+    Scheduler --> DailyPlan : generates
+    DailyPlan "1" --> "0..*" ScheduledEntry : contains
+    ScheduledEntry --> Pet : belongs to
+    ScheduledEntry --> Task : wraps
