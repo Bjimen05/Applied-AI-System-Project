@@ -21,7 +21,19 @@ I kept the design flat — no inheritance, no abstract base classes — because 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
-*Yes, the design changed once I started implementing. My initial `Scheduler` only sorted by priority, but I realized that two high-priority tasks of very different durations could lead to an unrealistic plan (e.g., a 5-minute feeding and a 60-minute walk both marked high, leaving no room for medium tasks). I added a secondary sort by duration (shorter tasks first among equal priorities) so that the scheduler fits more tasks into the available window before time runs out. This made the output more useful without requiring a new class — just a change to the sort key inside `generate_plan()`.
+Yes, the design changed in several ways after reviewing the skeleton for logic gaps and silent bugs:
+
+1. **`priority: str` → `Priority` Enum.** The initial design stored priority as a plain string. During review I realized a typo like `"hihg"` would pass silently and break `priority_rank()` with no error message. Replacing it with a Python `Enum` (`HIGH=1`, `MEDIUM=2`, `LOW=3`) means invalid values raise an error at assignment, and `priority_rank()` becomes a one-liner: `return self.priority.value`.
+
+2. **Times stored as `int` (minutes since midnight) instead of `str`.** The initial design used strings like `"08:00"` for `day_start`, `due_time`, `start_time`, and `end_time`. Computing `end_time = start_time + duration_minutes` would have required parsing and reformatting strings every time. Switching to integers (e.g. `480` = 08:00) makes the arithmetic direct and only requires formatting at display time.
+
+3. **`remove_task(title: str)` → `remove_task(task: Task)`.** Removing a task by its title string is ambiguous if a pet has two tasks with the same name (e.g., two "Feeding" entries). Removing by object reference eliminates that ambiguity entirely.
+
+4. **`due_time` wired into `_sort_tasks`.** The initial skeleton defined `due_time` on `Task` but never used it in scheduling. I added it as the secondary sort key (after priority, before duration) so tasks with earlier deadlines are scheduled first within the same priority tier.
+
+5. **`date: str` added to `DailyPlan`.** The original plan had no date field, making it impossible to distinguish a Monday plan from a Tuesday one. Adding `date` costs nothing now and prevents a structural gap if recurring or multi-day scheduling is added later.
+
+6. **`ScheduledEntry` and `DailyPlan` split into separate classes.** My initial design returned raw `(start_time, Task)` tuples from `generate_plan()`. Formalizing these as `ScheduledEntry` (with `pet`, `task`, `start_time`, `end_time`) and `DailyPlan` (with `entries`, `skipped_tasks`, `explain()`) makes the output structured and gives the UI a clean interface to display both what was scheduled and what was skipped and why.
 
 ---
 

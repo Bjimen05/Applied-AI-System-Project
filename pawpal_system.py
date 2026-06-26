@@ -1,5 +1,16 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+# ---------------------------------------------------------------------------
+# Priority enum — prevents silent typos like priority="hihg"
+# ---------------------------------------------------------------------------
+
+class Priority(Enum):
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
 
 
 # ---------------------------------------------------------------------------
@@ -11,22 +22,19 @@ class Task:
     title: str
     description: str
     duration_minutes: int
-    priority: str          # "high", "medium", or "low"
-    due_time: str          # e.g. "09:00"
+    priority: Priority
+    due_time: int           # minutes since midnight, e.g. 540 = 09:00
     completed: bool = False
 
     def mark_complete(self) -> None:
-        pass
+        self.completed = True
 
     def priority_rank(self) -> int:
-        pass
-
-    def __repr__(self) -> str:
-        pass
+        return self.priority.value
 
 
 # ---------------------------------------------------------------------------
-# Pet 
+# Pet
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -40,16 +48,14 @@ class Pet:
     def add_task(self, task: Task) -> None:
         pass
 
-    def remove_task(self, title: str) -> None:
+    def remove_task(self, task: Task) -> None:
+        # removes by object identity — avoids duplicate-title ambiguity
         pass
 
     def list_tasks(self) -> list[Task]:
         pass
 
     def get_pending_tasks(self) -> list[Task]:
-        pass
-
-    def __repr__(self) -> str:
         pass
 
 
@@ -61,7 +67,7 @@ class Pet:
 class Owner:
     name: str
     available_minutes: int
-    day_start: str         # e.g. "08:00"
+    day_start: int          # minutes since midnight, e.g. 480 = 08:00
     pets: list[Pet] = field(default_factory=list)
 
     def add_pet(self, pet: Pet) -> None:
@@ -76,9 +82,6 @@ class Owner:
     def get_all_tasks(self) -> list[tuple[Pet, Task]]:
         pass
 
-    def __repr__(self) -> str:
-        pass
-
 
 # ---------------------------------------------------------------------------
 # ScheduledEntry
@@ -88,11 +91,8 @@ class Owner:
 class ScheduledEntry:
     pet: Pet
     task: Task
-    start_time: str
-    end_time: str
-
-    def __repr__(self) -> str:
-        pass
+    start_time: int         # minutes since midnight
+    end_time: int           # minutes since midnight
 
 
 # ---------------------------------------------------------------------------
@@ -100,9 +100,11 @@ class ScheduledEntry:
 # ---------------------------------------------------------------------------
 
 class DailyPlan:
-    def __init__(self, owner: Owner, entries: list[ScheduledEntry],
+    def __init__(self, owner: Owner, date: str,
+                 entries: list[ScheduledEntry],
                  skipped_tasks: list[tuple[Pet, Task]]) -> None:
         self.owner = owner
+        self.date = date
         self.entries = entries
         self.skipped_tasks = skipped_tasks
 
@@ -113,7 +115,7 @@ class DailyPlan:
         pass
 
     def total_time_used(self) -> int:
-        pass
+        return sum(e.task.duration_minutes for e in self.entries)
 
 
 # ---------------------------------------------------------------------------
@@ -125,10 +127,16 @@ class Scheduler:
         self.owner = owner
 
     def collect_tasks(self) -> list[tuple[Pet, Task]]:
+        # delegates to owner.get_all_tasks() which flattens across all pets
         pass
 
     def generate_plan(self) -> DailyPlan:
+        # time anchor: self.owner.day_start (minutes since midnight)
+        # time budget: self.owner.available_minutes
         pass
 
     def _sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
+        # primary: priority_rank() ascending (HIGH=1 first)
+        # secondary: due_time ascending (earlier deadlines first)
+        # tertiary: duration_minutes ascending (fit more tasks in budget)
         pass
