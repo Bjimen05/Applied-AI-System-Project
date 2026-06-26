@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 
 
@@ -46,17 +47,16 @@ class Pet:
     tasks: list[Task] = field(default_factory=list)
 
     def add_task(self, task: Task) -> None:
-        pass
+        self.tasks.append(task)
 
     def remove_task(self, task: Task) -> None:
-        # removes by object identity — avoids duplicate-title ambiguity
-        pass
+        self.tasks.remove(task)
 
     def list_tasks(self) -> list[Task]:
-        pass
+        return list(self.tasks)
 
     def get_pending_tasks(self) -> list[Task]:
-        pass
+        return [t for t in self.tasks if not t.completed]
 
 
 # ---------------------------------------------------------------------------
@@ -71,16 +71,16 @@ class Owner:
     pets: list[Pet] = field(default_factory=list)
 
     def add_pet(self, pet: Pet) -> None:
-        pass
+        self.pets.append(pet)
 
     def remove_pet(self, name: str) -> None:
-        pass
+        self.pets = [p for p in self.pets if p.name != name]
 
     def list_pets(self) -> list[Pet]:
-        pass
+        return list(self.pets)
 
     def get_all_tasks(self) -> list[tuple[Pet, Task]]:
-        pass
+        return [(pet, task) for pet in self.pets for task in pet.get_pending_tasks()]
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +93,15 @@ class ScheduledEntry:
     task: Task
     start_time: int         # minutes since midnight
     end_time: int           # minutes since midnight
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _fmt_time(minutes: int) -> str:
+    """Convert minutes-since-midnight to HH:MM string."""
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -109,10 +118,63 @@ class DailyPlan:
         self.skipped_tasks = skipped_tasks
 
     def display(self) -> str:
-        pass
+        lines = [
+            f"Daily Plan for {self.owner.name} — {self.date}",
+            "─" * 50,
+        ]
+
+        if not self.entries:
+            lines.append("  No tasks scheduled.")
+        else:
+            for e in self.entries:
+                start = _fmt_time(e.start_time)
+                end   = _fmt_time(e.end_time)
+                lines.append(
+                    f"  {start} – {end}  "
+                    f"{e.pet.name:<12} "
+                    f"{e.task.title} ({e.task.duration_minutes} min) "
+                    f"[{e.task.priority.name}]"
+                )
+
+        lines.append("─" * 50)
+        lines.append(
+            f"  Total: {self.total_time_used()} / {self.owner.available_minutes} min used"
+        )
+
+        if self.skipped_tasks:
+            skipped_titles = ", ".join(t.title for _, t in self.skipped_tasks)
+            lines.append(f"  Skipped ({len(self.skipped_tasks)}): {skipped_titles}")
+
+        return "\n".join(lines)
 
     def explain(self) -> str:
-        pass
+        lines = [
+            f"Scheduling reasoning for {self.owner.name} — {self.date}",
+            "",
+        ]
+
+        if self.entries:
+            lines.append(f"Scheduled ({len(self.entries)} tasks):")
+            for e in self.entries:
+                lines.append(
+                    f"  + {e.task.title} ({e.pet.name}) — "
+                    f"{e.task.priority.name} priority, "
+                    f"due {_fmt_time(e.task.due_time)}, "
+                    f"scheduled at {_fmt_time(e.start_time)}"
+                )
+
+        if self.skipped_tasks:
+            remaining = self.owner.available_minutes - self.total_time_used()
+            lines.append("")
+            lines.append(f"Skipped ({len(self.skipped_tasks)} tasks):")
+            for pet, task in self.skipped_tasks:
+                lines.append(
+                    f"  - {task.title} ({pet.name}) — "
+                    f"{task.priority.name} priority, "
+                    f"{task.duration_minutes} min needed but only {remaining} min remaining"
+                )
+
+        return "\n".join(lines)
 
     def total_time_used(self) -> int:
         return sum(e.task.duration_minutes for e in self.entries)
@@ -127,16 +189,43 @@ class Scheduler:
         self.owner = owner
 
     def collect_tasks(self) -> list[tuple[Pet, Task]]:
-        # delegates to owner.get_all_tasks() which flattens across all pets
-        pass
+        return self.owner.get_all_tasks()
 
     def generate_plan(self) -> DailyPlan:
-        # time anchor: self.owner.day_start (minutes since midnight)
-        # time budget: self.owner.available_minutes
-        pass
+        sorted_tasks = self._sort_tasks(self.collect_tasks())
+
+        clock = self.owner.day_start          # running time cursor
+        budget = self.owner.available_minutes
+        time_used = 0
+        entries: list[ScheduledEntry] = []
+        skipped: list[tuple[Pet, Task]] = []
+
+        for pet, task in sorted_tasks:
+            if time_used + task.duration_minutes <= budget:
+                entries.append(ScheduledEntry(
+                    pet=pet,
+                    task=task,
+                    start_time=clock,
+                    end_time=clock + task.duration_minutes,
+                ))
+                clock += task.duration_minutes
+                time_used += task.duration_minutes
+            else:
+                skipped.append((pet, task))
+
+        return DailyPlan(
+            owner=self.owner,
+            date=str(date.today()),
+            entries=entries,
+            skipped_tasks=skipped,
+        )
 
     def _sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
-        # primary: priority_rank() ascending (HIGH=1 first)
-        # secondary: due_time ascending (earlier deadlines first)
-        # tertiary: duration_minutes ascending (fit more tasks in budget)
-        pass
+        # 1st: priority (HIGH=1 sorts before LOW=3)
+        # 2nd: due_time (earlier deadlines first within same priority)
+        # 3rd: duration (shorter tasks first to fit more into the budget)
+        return sorted(tasks, key=lambda pt: (
+            pt[1].priority_rank(),
+            pt[1].due_time,
+            pt[1].duration_minutes,
+        ))
