@@ -44,10 +44,14 @@ Yes, the design changed in several ways after reviewing the skeleton for logic g
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
 
+The scheduler uses four constraints: available time, priority (HIGH/MEDIUM/LOW), due time, and duration. It also boosts urgency for tasks due within 60 minutes. Priority comes first for importance, then due time, then duration as a tiebreaker, while available time limits the schedule.
+
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
+
+The scheduler uses a greedy algorithm, sorting tasks by priority and filling time step by step. It’s fast and simple, but not always optimal since some time may be wasted. More advanced methods could schedule more efficiently, but this approach keeps important tasks prioritized and easy to understand.
 
 ---
 

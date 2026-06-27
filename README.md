@@ -75,14 +75,21 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
-
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Priority + urgency sort | `Scheduler._sort_tasks` | Sorts by priority (HIGH=1, LOW=3), then deadline, then duration. Tasks due within 60 min of `day_start` get their priority rank boosted by one tier automatically. |
+
+| Chronological sort | `Scheduler.sort_by_time` | Returns tasks sorted by `due_time` (minutes since midnight) ascending — useful for display and inspection. |
+
+| Status / pet filter | `Scheduler.filter_tasks` | Filters a task list by `completed` status, `pet_name`, or both combined. Keyword-only args prevent accidental positional misuse. |
+
+| Deadline feasibility | `Scheduler.generate_plan` | Before placing a task, checks that `clock + duration <= due_time`. Tasks that would finish after their deadline are skipped with reason `"deadline"` instead of `"budget"`. |
+
+| Conflict detection | `Scheduler.detect_conflicts` | Computes each task's ideal window `[due_time - duration, due_time]` and checks all pairs for overlap. Returns a warning string per conflicting pair; returns an empty list when the schedule is clean. |
+
+| Recurring tasks | `Scheduler.mark_task_complete` | Marks a task done and, if `frequency` is `DAILY` or `WEEKLY`, uses `timedelta(days=1)` or `timedelta(days=7)` to create a new instance with the next `due_date` automatically added to the pet. `Frequency.ONCE` tasks are not repeated. |
+
+| Collect all tasks | `Scheduler.collect_all_tasks` | Returns every task across all pets regardless of completion status — needed to use `filter_tasks` across both pending and done tasks. |
 
 ## 📸 Demo Walkthrough
 

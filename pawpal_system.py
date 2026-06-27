@@ -1,6 +1,6 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
+from datetime import date, timedelta
 from enum import Enum
 
 
@@ -15,6 +15,16 @@ class Priority(Enum):
 
 
 # ---------------------------------------------------------------------------
+# Frequency enum — controls whether a completed task recurs
+# ---------------------------------------------------------------------------
+
+class Frequency(Enum):
+    ONCE   = "once"    # no recurrence — default
+    DAILY  = "daily"   # next occurrence is due_date + 1 day
+    WEEKLY = "weekly"  # next occurrence is due_date + 7 days
+
+
+# ---------------------------------------------------------------------------
 # Task
 # ---------------------------------------------------------------------------
 
@@ -24,8 +34,10 @@ class Task:
     description: str
     duration_minutes: int
     priority: Priority
-    due_time: int           # minutes since midnight, e.g. 540 = 09:00
+    due_time: int                                        # minutes since midnight, e.g. 540 = 09:00
     completed: bool = False
+    frequency: Frequency = Frequency.ONCE
+    due_date: date = field(default_factory=date.today)  # calendar date this instance is due
 
     def mark_complete(self) -> None:
         """Mark this task as done."""
@@ -104,6 +116,10 @@ class ScheduledEntry:
     start_time: int         # minutes since midnight
     end_time: int           # minutes since midnight
 
+# Skip reasons for skipped tasks
+SKIP_BUDGET = "budget"
+SKIP_DEADLINE = "deadline"
+
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -121,11 +137,12 @@ def _fmt_time(minutes: int) -> str:
 class DailyPlan:
     def __init__(self, owner: Owner, date: str,
                  entries: list[ScheduledEntry],
-                 skipped_tasks: list[tuple[Pet, Task]]) -> None:
+                 skipped_tasks: list[tuple[Pet, Task, str]]) -> None:
         self.owner = owner
         self.date = date
         self.entries = entries
         self.skipped_tasks = skipped_tasks
+        self._total_cached: int | None = None
 
     def display(self) -> str:
         """Return a formatted schedule string showing all entries and skipped tasks."""
@@ -153,7 +170,7 @@ class DailyPlan:
         )
 
         if self.skipped_tasks:
-            skipped_titles = ", ".join(t.title for _, t in self.skipped_tasks)
+            skipped_titles = ", ".join(t.title for _, t, _ in self.skipped_tasks)
             lines.append(f"  Skipped ({len(self.skipped_tasks)}): {skipped_titles}")
 
         return "\n".join(lines)
@@ -179,18 +196,28 @@ class DailyPlan:
             remaining = self.owner.available_minutes - self.total_time_used()
             lines.append("")
             lines.append(f"Skipped ({len(self.skipped_tasks)} tasks):")
-            for pet, task in self.skipped_tasks:
-                lines.append(
-                    f"  - {task.title} ({pet.name}) — "
-                    f"{task.priority.name} priority, "
-                    f"{task.duration_minutes} min needed but only {remaining} min remaining"
-                )
+            for pet, task, reason in self.skipped_tasks:
+                if reason == SKIP_DEADLINE:
+                    lines.append(
+                        f"  - {task.title} ({pet.name}) — "
+                        f"{task.priority.name} priority, "
+                        f"missed deadline ({_fmt_time(task.due_time)}): "
+                        f"would finish after due time"
+                    )
+                else:
+                    lines.append(
+                        f"  - {task.title} ({pet.name}) — "
+                        f"{task.priority.name} priority, "
+                        f"{task.duration_minutes} min needed but only {remaining} min remaining"
+                    )
 
         return "\n".join(lines)
 
     def total_time_used(self) -> int:
         """Return the sum of all scheduled task durations in minutes."""
-        return sum(e.task.duration_minutes for e in self.entries)
+        if self._total_cached is None:
+            self._total_cached = sum(e.task.duration_minutes for e in self.entries)
+        return self._total_cached
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +232,92 @@ class Scheduler:
         """Retrieve all pending tasks across the owner's pets."""
         return self.owner.get_all_tasks()
 
+    def collect_all_tasks(self) -> list[tuple[Pet, Task]]:
+        """Retrieve every task (pending and completed) across the owner's pets."""
+        return [(pet, task) for pet in self.owner.pets for task in pet.list_tasks()]
+
+    def mark_task_complete(self, pet: Pet, task: Task) -> Task | None:
+        """Mark a task complete and, for recurring tasks, add the next occurrence to the pet.
+
+        Uses timedelta to calculate the next due_date:
+          - Frequency.DAILY  → due_date + timedelta(days=1)
+          - Frequency.WEEKLY → due_date + timedelta(days=7)
+          - Frequency.ONCE   → no new task; returns None
+
+        Returns the newly created Task for DAILY/WEEKLY, or None for ONCE.
+        """
+        task.mark_complete()
+
+        if task.frequency == Frequency.ONCE:
+            return None
+
+        days_ahead = 1 if task.frequency == Frequency.DAILY else 7
+        next_due_date = task.due_date + timedelta(days=days_ahead)
+
+        next_task = replace(task, due_date=next_due_date, completed=False)
+        pet.add_task(next_task)
+        return next_task
+
+    def sort_by_time(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
+        """Return tasks sorted by due_time (minutes since midnight) ascending.
+
+        Sorts directly on the integer due_time value — earlier deadlines first.
+        """
+        return sorted(tasks, key=lambda pt: pt[1].due_time)
+
+    def filter_tasks(
+        self,
+        tasks: list[tuple[Pet, Task]],
+        *,
+        completed: bool | None = None,
+        pet_name: str | None = None,
+    ) -> list[tuple[Pet, Task]]:
+        """Return a filtered subset of tasks.
+
+        Args:
+            tasks:      List of (Pet, Task) pairs to filter.
+            completed:  If True, keep only completed tasks.
+                        If False, keep only pending tasks.
+                        If None, completion status is not filtered.
+            pet_name:   If given, keep only tasks belonging to this pet (case-insensitive).
+                        If None, all pets are included.
+
+        Both filters are applied together when both are provided.
+        """
+        return [
+            (pet, task) for pet, task in tasks
+            if (completed is None or task.completed == completed)
+            and (pet_name is None or pet.name.lower() == pet_name.lower())
+        ]
+
+    def detect_conflicts(self, tasks: list[tuple[Pet, Task]]) -> list[str]:
+        """Check every pair of pending tasks for overlapping ideal time windows.
+
+        Each task's ideal window is [due_time - duration_minutes, due_time].
+        Two tasks conflict when those windows intersect — meaning both tasks
+        would need to be in progress at the same moment to meet their deadlines.
+
+        Returns a list of warning strings (one per conflicting pair).
+        An empty list means no conflicts were found.
+        """
+        warnings: list[str] = []
+        pending = [(pet, task) for pet, task in tasks if not task.completed]
+
+        for i, (pet_a, task_a) in enumerate(pending):
+            start_a = task_a.due_time - task_a.duration_minutes
+            for pet_b, task_b in pending[i + 1:]:
+                start_b = task_b.due_time - task_b.duration_minutes
+                overlaps = start_a < task_b.due_time and start_b < task_a.due_time
+                if overlaps:
+                    warnings.append(
+                        f"WARNING: '{task_a.title}' ({pet_a.name}) "
+                        f"[{_fmt_time(start_a)}-{_fmt_time(task_a.due_time)}] "
+                        f"overlaps with '{task_b.title}' ({pet_b.name}) "
+                        f"[{_fmt_time(start_b)}-{_fmt_time(task_b.due_time)}]"
+                    )
+
+        return warnings
+
     def generate_plan(self) -> DailyPlan:
         """Build a greedy daily plan, fitting tasks into the owner's time budget."""
         sorted_tasks = self._sort_tasks(self.collect_tasks())
@@ -213,20 +326,26 @@ class Scheduler:
         budget = self.owner.available_minutes
         time_used = 0
         entries: list[ScheduledEntry] = []
-        skipped: list[tuple[Pet, Task]] = []
+        skipped: list[tuple[Pet, Task, str]] = []
 
         for pet, task in sorted_tasks:
-            if time_used + task.duration_minutes <= budget:
-                entries.append(ScheduledEntry(
-                    pet=pet,
-                    task=task,
-                    start_time=clock,
-                    end_time=clock + task.duration_minutes,
-                ))
-                clock += task.duration_minutes
-                time_used += task.duration_minutes
-            else:
-                skipped.append((pet, task))
+            finish_time = clock + task.duration_minutes
+            # Deadline check: task must finish by its due_time
+            if finish_time > task.due_time:
+                skipped.append((pet, task, SKIP_DEADLINE))
+                continue
+            # Budget check: owner must have enough time remaining
+            if time_used + task.duration_minutes > budget:
+                skipped.append((pet, task, SKIP_BUDGET))
+                continue
+            entries.append(ScheduledEntry(
+                pet=pet,
+                task=task,
+                start_time=clock,
+                end_time=finish_time,
+            ))
+            clock += task.duration_minutes
+            time_used += task.duration_minutes
 
         return DailyPlan(
             owner=self.owner,
@@ -236,12 +355,19 @@ class Scheduler:
         )
 
     def _sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
-        """Sort tasks by priority, then due time, then duration."""
-        # 1st: priority (HIGH=1 sorts before LOW=3)
-        # 2nd: due_time (earlier deadlines first within same priority)
-        # 3rd: duration (shorter tasks first to fit more into the budget)
-        return sorted(tasks, key=lambda pt: (
-            pt[1].priority_rank(),
-            pt[1].due_time,
-            pt[1].duration_minutes,
-        ))
+        """Sort tasks by urgency-adjusted priority, then due time, then duration.
+
+        A task due within 60 minutes of day_start is considered urgent and gets
+        its priority rank boosted by one tier (e.g. MEDIUM acts like HIGH).
+        """
+        urgency_window = self.owner.day_start + 60
+
+        def sort_key(pt: tuple[Pet, Task]) -> tuple[int, int, int]:
+            task = pt[1]
+            rank = task.priority_rank()
+            # Boost urgent tasks: decrement rank so they sort earlier
+            if task.due_time <= urgency_window and rank > 1:
+                rank -= 1
+            return (rank, task.due_time, task.duration_minutes)
+
+        return sorted(tasks, key=sort_key)
