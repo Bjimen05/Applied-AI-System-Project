@@ -59,18 +59,63 @@ Daily Plan for Alex — 2026-06-26
 
 ## 🧪 Testing PawPal+
 
+Run the full test suite from the project root:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest tests/test_pawpal.py -v
 ```
 
-Sample test output:
+The tests cover:
+
+- **Recurring tasks** — DAILY advances one day, WEEKLY advances seven days, ONCE produces no clone, and the new task is always reset to `completed=False`
+- **Sorting** — `sort_by_time` orders tasks by `due_time` ascending, handles empty lists and single-item lists
+- **Conflict detection** — overlapping ideal windows are flagged, non-overlapping and completed tasks are ignored
+- **Scheduling / `generate_plan`** — tasks are skipped with the correct reason (`"deadline"` or `"budget"`), boundary conditions (duration exactly equals budget or due time) are handled correctly, and priority + urgency ordering is enforced
+- **Filtering** — `filter_tasks` handles pending/completed status, case-insensitive pet name matching, combined filters, and unknown names
 
 ```
-# Paste your pytest output here
+============================= test session starts =============================
+platform win32 -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Brandon\Documents\GitHub\ai110-module2show-pawpal-starter
+plugins: anyio-4.13.0
+collecting ... collected 31 items
+
+tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [  3%]
+tests/test_pawpal.py::test_add_task_increases_pet_task_count PASSED      [  6%]
+tests/test_pawpal.py::test_daily_recurrence_advances_one_day PASSED      [  9%]
+tests/test_pawpal.py::test_weekly_recurrence_advances_seven_days PASSED  [ 12%]
+tests/test_pawpal.py::test_once_task_returns_none_and_adds_no_new_task PASSED [ 16%]
+tests/test_pawpal.py::test_recurring_clone_is_not_completed PASSED       [ 19%]
+tests/test_pawpal.py::test_original_task_marked_complete_after_recurrence PASSED [ 22%]
+tests/test_pawpal.py::test_recurring_clone_added_to_pet_task_list PASSED [ 25%]
+tests/test_pawpal.py::test_sort_by_time_orders_ascending PASSED          [ 29%]
+tests/test_pawpal.py::test_sort_by_time_empty_list PASSED                [ 32%]
+tests/test_pawpal.py::test_sort_by_time_single_task_unchanged PASSED     [ 35%]
+tests/test_pawpal.py::test_overlapping_windows_detected PASSED           [ 38%]
+tests/test_pawpal.py::test_non_overlapping_windows_no_conflict PASSED    [ 41%]
+tests/test_pawpal.py::test_single_task_no_conflict PASSED                [ 45%]
+tests/test_pawpal.py::test_empty_task_list_no_conflict PASSED            [ 48%]
+tests/test_pawpal.py::test_completed_tasks_excluded_from_conflict_check PASSED [ 51%]
+tests/test_pawpal.py::test_task_skipped_when_it_misses_deadline PASSED   [ 54%]
+tests/test_pawpal.py::test_task_skipped_when_budget_exhausted PASSED     [ 58%]
+tests/test_pawpal.py::test_task_fits_when_duration_equals_remaining_budget PASSED [ 61%]
+tests/test_pawpal.py::test_task_fits_when_finish_equals_due_time PASSED  [ 64%]
+tests/test_pawpal.py::test_zero_budget_skips_all_tasks PASSED            [ 67%]
+tests/test_pawpal.py::test_no_pets_produces_empty_plan PASSED            [ 70%]
+tests/test_pawpal.py::test_high_priority_scheduled_before_low_priority PASSED [ 74%]
+tests/test_pawpal.py::test_urgent_low_priority_boosted_over_non_urgent_medium PASSED [ 77%]
+tests/test_pawpal.py::test_filter_pending_excludes_completed PASSED      [ 80%]
+tests/test_pawpal.py::test_filter_completed_excludes_pending PASSED      [ 83%]
+tests/test_pawpal.py::test_filter_by_pet_name_case_insensitive PASSED    [ 87%]
+tests/test_pawpal.py::test_filter_combined_status_and_pet_name PASSED    [ 90%]
+tests/test_pawpal.py::test_filter_unknown_pet_name_returns_empty PASSED  [ 93%]
+tests/test_pawpal.py::test_total_time_used_sums_scheduled_durations PASSED [ 96%]
+tests/test_pawpal.py::test_total_time_used_empty_plan PASSED             [100%]
+
+============================= 31 passed in 0.03s ==============================
+
+My confidence level is 5 stars based on my test results
 ```
 
 ## 📐 Smarter Scheduling
