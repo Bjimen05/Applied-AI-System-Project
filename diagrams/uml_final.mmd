@@ -1,0 +1,92 @@
+classDiagram
+    class Priority {
+        <<enumeration>>
+        HIGH
+        MEDIUM
+        LOW
+        +priority_rank() int
+    }
+
+    class Frequency {
+        <<enumeration>>
+        ONCE
+        DAILY
+        WEEKLY
+    }
+
+    class Task {
+        +str title
+        +str description
+        +int duration_minutes
+        +Priority priority
+        +int due_time
+        +bool completed
+        +Frequency frequency
+        +date due_date
+        +mark_complete()
+        +priority_rank() int
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +int age
+        +list~Task~ tasks
+        +add_task(task)
+        +remove_task(task)
+        +list_tasks() list
+        +get_pending_tasks() list
+    }
+
+    class Owner {
+        +str name
+        +int available_minutes
+        +int day_start
+        +list~Pet~ pets
+        +add_pet(pet)
+        +remove_pet(name)
+        +list_pets() list
+        +get_all_tasks() list
+    }
+
+    class Scheduler {
+        +Owner owner
+        +collect_tasks() list
+        +collect_all_tasks() list
+        +mark_task_complete(pet, task) Task
+        +sort_by_time(tasks) list
+        +filter_tasks(tasks, completed, pet_name) list
+        +detect_conflicts(tasks) list
+        +generate_plan() DailyPlan
+        +_sort_tasks(tasks) list
+    }
+
+    class ScheduledEntry {
+        +Pet pet
+        +Task task
+        +int start_time
+        +int end_time
+    }
+
+    class DailyPlan {
+        +Owner owner
+        +str date
+        +list~ScheduledEntry~ entries
+        +list skipped_tasks
+        -int _total_cached
+        +display() str
+        +explain() str
+        +total_time_used() int
+    }
+
+    Task --> Priority : priority
+    Task --> Frequency : frequency
+    Owner "1" --> "0..*" Pet : owns
+    Pet "1" --> "0..*" Task : has
+    Scheduler --> Owner : schedules for
+    Scheduler --> DailyPlan : generates
+    Scheduler ..> Frequency : uses
+    DailyPlan "1" --> "0..*" ScheduledEntry : contains
+    ScheduledEntry --> Pet : references
+    ScheduledEntry --> Task : wraps

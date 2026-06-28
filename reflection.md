@@ -44,14 +44,14 @@ Yes, the design changed in several ways after reviewing the skeleton for logic g
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
 
-The scheduler uses four constraints: available time, priority (HIGH/MEDIUM/LOW), due time, and duration. It also boosts urgency for tasks due within 60 minutes. Priority comes first for importance, then due time, then duration as a tiebreaker, while available time limits the schedule.
+*The scheduler uses four constraints: available time, priority (HIGH/MEDIUM/LOW), due time, and duration. It also boosts urgency for tasks due within 60 minutes. Priority comes first for importance, then due time, then duration as a tiebreaker, while available time limits the schedule.
 
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
-The scheduler uses a greedy algorithm, sorting tasks by priority and filling time step by step. It’s fast and simple, but not always optimal since some time may be wasted. More advanced methods could schedule more efficiently, but this approach keeps important tasks prioritized and easy to understand.
+*The scheduler uses a greedy algorithm, sorting tasks by priority and filling time step by step. It’s fast and simple, but not always optimal since some time may be wasted. More advanced methods could schedule more efficiently, but this approach keeps important tasks prioritized and easy to understand.
 
 ---
 
@@ -62,11 +62,14 @@ The scheduler uses a greedy algorithm, sorting tasks by priority and filling tim
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
+*I use Ai tools for design, brainstroming, debugging  refactoring. Designing and brainstorming the UML diagram, debugging specifically the pawpal_system.py for the correct logic, refactoring my entire code to be more professional and correct.
+
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
 
+*The AI suggest to remove the comments for the code and I did not accept that by finding what it wants to delete.
 ---
 
 ## 4. Testing and Verification
@@ -76,10 +79,16 @@ The scheduler uses a greedy algorithm, sorting tasks by priority and filling tim
 - What behaviors did you test?
 - Why were these tests important?
 
+*I tested many behaviors with task like if a task is correctly marked as completed, stored correctly in a pet's task list, recurring tasks, sorting and filtering tasks. As well as conflict detection, schedule generation, skipped task handling, priority & urgency logic and total scheduling time.
+
+These test were important because it verify that the core features work correctly and handle both normal and edge cases, as to help catch bugs very early.
+
 **b. Confidence**
 
 - How confident are you that your scheduler works correctly?
 - What edge cases would you test next if you had more time?
+
+*I'm very confident that my scheduler work correctly. I will test edge cases like tasks already past due before the day start, three overlapping tasks instead of two, making sure the remove methods work correctly, midnigt tasks are handled correctly, pets with no tasks don't cause errors. 
 
 ---
 
@@ -89,10 +98,16 @@ The scheduler uses a greedy algorithm, sorting tasks by priority and filling tim
 
 - What part of this project are you most satisfied with?
 
+*Designing the UML diagram and writing the algorithm methods because it allows me to critically think what classes and methods I need.
+
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
 
+*I would improve the scheduling algorithm to better optimize available time, add support for task editing and deletion in the UI, improve conflict detection for more complex overlaps, add more input validation and edge-case tests.
+
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
+
+*That it takes time to design and brainstorm on how to make a project, that there is more than just coding, I need to plan what I need for my project instead just coding straight away, as  well as reviewing what the AI suggests so it correctly add based on what I planned.

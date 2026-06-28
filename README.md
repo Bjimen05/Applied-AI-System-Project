@@ -138,12 +138,104 @@ My confidence level is 5 stars based on my test results
 
 ## 📸 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+### UI Features
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+The Streamlit app (`app.py`) gives you a single-page interface with three main areas:
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+- **Owner & Pet Setup** — Enter the owner's name, daily time budget (minutes), and the hour their day starts. Add a pet with name, species, breed, and age. Resubmitting the form updates settings without wiping existing tasks.
+- **Add a Task** — Choose a title, duration, priority (HIGH / MEDIUM / LOW), deadline hour, and whether the task repeats (ONCE / DAILY / WEEKLY). Click "Add task" to attach it to the active pet.
+- **Task list** — All pending tasks for the active pet are shown in a table sorted chronologically by due time. If any two tasks have overlapping ideal windows, a conflict warning appears immediately below the table.
+- **Build Schedule** — Click "Generate schedule" to run the scheduler. The result shows a time-slotted table of scheduled tasks, a summary of minutes used vs. available, and a warning for each skipped task explaining whether it was dropped due to a missed deadline or an exhausted budget. A "Why was this plan chosen?" expander shows the full plain-English reasoning.
+
+### Example Workflow
+
+1. Set owner **Jordan**, 120 available minutes, day start at 08:00.
+2. Add pet **Mochi** (dog).
+3. Add task: *Morning walk*, 30 min, HIGH priority, due by 09:00, repeats DAILY.
+4. Add task: *Feeding*, 10 min, HIGH priority, due by 08:30, repeats ONCE.
+5. The task table re-renders sorted by due time — Feeding (08:30) appears above Morning walk (09:00).
+6. Click **Generate schedule**. The scheduler fits both tasks within the budget and slots them back-to-back starting at 08:00.
+7. After completing Morning walk in real life, calling `mark_task_complete` creates a new instance due tomorrow automatically — the DAILY recurrence is handled without any manual re-entry.
+
+### Key Scheduler Behaviors Shown
+
+| Behavior | What you see |
+|---|---|
+| Chronological sort (`sort_by_time`) | Task table always lists earliest deadlines first, regardless of the order tasks were added |
+| Priority + urgency sort (`_sort_tasks`) | HIGH priority tasks are placed first in the generated plan; a LOW priority task due within 60 min of day start is boosted one tier |
+| Conflict warnings (`detect_conflicts`) | A yellow `st.warning` appears under the task table when two tasks' ideal windows overlap |
+| Deadline skip | A skipped task's warning names the deadline it would have missed |
+| Budget skip | A skipped task's warning states the budget was exhausted |
+| Recurring tasks (`mark_task_complete`) | DAILY advances `due_date` by 1 day; WEEKLY by 7 days; ONCE produces no new task |
+
+### Sample CLI Output
+
+Running `python main.py` exercises the full backend without the UI:
+
+```
+===== Tasks as added (out of order) =====
+  Biscuit      Morning Walk         due 09:00  [pending]
+  Biscuit      Feeding              due 08:30  [pending]
+  Whiskers     Litter Box           due 10:00  [DONE]
+  Whiskers     Grooming             due 10:30  [pending]
+  Pebble       Enrichment           due 11:00  [pending]
+
+===== sort_by_time: earliest due first =====
+  Biscuit      Feeding              due 08:30  [pending]
+  Biscuit      Morning Walk         due 09:00  [pending]
+  Whiskers     Litter Box           due 10:00  [DONE]
+  Whiskers     Grooming             due 10:30  [pending]
+  Pebble       Enrichment           due 11:00  [pending]
+
+===== filter: pending tasks only =====
+  Biscuit      Morning Walk
+  Biscuit      Feeding
+  Whiskers     Grooming
+  Pebble       Enrichment
+
+===== filter: completed tasks only =====
+  Whiskers     Litter Box
+
+===== filter: Biscuit's tasks only =====
+  Biscuit      Morning Walk
+  Biscuit      Feeding
+
+===== filter: Biscuit's pending tasks (both filters combined) =====
+  Biscuit      Morning Walk
+  Biscuit      Feeding
+
+===== Today's Schedule =====
+  08:00 - 08:10  Biscuit      Feeding [HIGH]
+  08:10 - 08:40  Biscuit      Morning Walk [HIGH]
+  08:40 - 08:55  Whiskers     Grooming [MEDIUM]
+  08:55 - 09:15  Pebble       Enrichment [LOW]
+
+===== Recurrence: mark tasks complete =====
+
+  Completing 'Morning Walk' (DAILY) for Biscuit...
+  timedelta used: 1 day  ->  next due_date = 2026-06-28
+    Morning Walk           freq=daily    due_date=2026-06-27  [DONE]
+    Feeding                freq=once     due_date=2026-06-27  [pending]
+    Morning Walk           freq=daily    due_date=2026-06-28  [pending]
+
+  Completing 'Feeding' (ONCE) for Biscuit...
+  No recurrence — mark_task_complete returned: None
+    Morning Walk           freq=daily    due_date=2026-06-27  [DONE]
+    Feeding                freq=once     due_date=2026-06-27  [DONE]
+    Morning Walk           freq=daily    due_date=2026-06-28  [pending]
+
+  Completing 'Grooming' (WEEKLY) for Whiskers...
+  timedelta used: 7 days  ->  next due_date = 2026-07-04
+    Litter Box             freq=once     due_date=2026-06-27  [DONE]
+    Grooming               freq=weekly   due_date=2026-06-27  [DONE]
+    Grooming               freq=weekly   due_date=2026-07-04  [pending]
+
+===== Conflict Detection =====
+
+Tasks and their ideal windows:
+  Buddy    Vet Check        window [09:00 - 09:30]
+  Buddy    Evening Walk     window [17:30 - 18:00]
+  Luna     Bath Time        window [09:00 - 09:20]
+
+  WARNING: 'Vet Check' (Buddy) [09:00-09:30] overlaps with 'Bath Time' (Luna) [09:00-09:20]
+```
