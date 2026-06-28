@@ -40,12 +40,34 @@ I asked Claude Code (claude-sonnet-4-6) to add a third scheduling algorithm capa
 | | Option A | Option B |
 |-|----------|----------|
 | **Model / tool used** | | |
+
+* Claude  |   Cursor
+
 | **Prompt** | | |
+
+
+*Extend my Scheduler to detect when two tasks (for the same or different pets) overlap in time. Instead of crashing, return a warning message about the conflict.
+Update main.py with two tasks scheduled at the same time and confirm that the scheduler detects and prints the warning.
+
 | **Response summary** | | |
+
+*Added a detect_conflicts() method, updated main.py with sample tasks, ran the program, fixed a small _fmt_time issue, and verified the warning was printed. |  Added a detect_conflicts() method, explained the overlap algorithm, updated main.py with sample tasks, and confirmed the warning was detected correctly.
+
 | **What was useful** | | |
+
+*Automatically edited multiple files, tested the code, fixed an error, and verified the final output. |  Clearly explained the conflict detection algorithm and why the overlap logic works.
+
 | **Problems noticed** | | |
+
+*An edit to main.py initially failed and _fmt_time caused an error that needed to be fixed. | Did not show as much debugging or verification as Claude.
+
 | **Decision** | | |
 
+*It verified the implementation by running the code and fixing issues before finishing. |  Good explanation and implementation, but less evidence of testing and debugging.
+
+
 **Which approach did you use in your final implementation and why?**
+
+I chosen Claude because it can explain what is the issue and how it will fix it, as well correct itself if it made a error, and verify it.
 
 <!-- Your conclusion -->
