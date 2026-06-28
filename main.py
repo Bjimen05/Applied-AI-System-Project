@@ -1,4 +1,55 @@
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
+
+from colorama import Fore, Style, init as colorama_init
+from tabulate import tabulate
+
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority, Frequency
+
+colorama_init(autoreset=True)
+
+# ---------------------------------------------------------------------------
+# Display helpers — emoji + color
+# ---------------------------------------------------------------------------
+
+SPECIES_EMOJI = {
+    "dog":    "🐕",
+    "cat":    "🐈",
+    "rabbit": "🐇",
+}
+
+PRIORITY_STYLE = {
+    Priority.HIGH:   (Fore.RED    + "🔴 HIGH"  , "🔴 HIGH"),
+    Priority.MEDIUM: (Fore.YELLOW + "🟡 MED"   , "🟡 MED"),
+    Priority.LOW:    (Fore.GREEN  + "🟢 LOW"   , "🟢 LOW"),
+}
+
+FREQ_EMOJI = {
+    Frequency.ONCE:   "1️⃣  once  ",
+    Frequency.DAILY:  "🔁 daily ",
+    Frequency.WEEKLY: "📅 weekly",
+}
+
+
+def species_icon(species: str) -> str:
+    return SPECIES_EMOJI.get(species.lower(), "🐾")
+
+
+def priority_label(p: Priority) -> str:
+    colored, _ = PRIORITY_STYLE[p]
+    return colored + Style.RESET_ALL
+
+
+def status_label(completed: bool) -> str:
+    if completed:
+        return Fore.GREEN + "✅ done   " + Style.RESET_ALL
+    return Fore.YELLOW + "⏳ pending" + Style.RESET_ALL
+
+
+def section(title: str) -> None:
+    print()
+    print(Fore.CYAN + Style.BRIGHT + f"{'─' * 4} {title} {'─' * (50 - len(title))}" + Style.RESET_ALL)
+
 
 # ---------------------------------------------------------------------------
 # Owner
@@ -27,7 +78,7 @@ pebble.add_task(Task(
     description="Free-roam time and tunnel play",
     duration_minutes=20,
     priority=Priority.LOW,
-    due_time=660,   # 11:00  — added first but latest due time
+    due_time=660,
 ))
 
 whiskers.add_task(Task(
@@ -35,7 +86,7 @@ whiskers.add_task(Task(
     description="Scoop and refill litter box",
     duration_minutes=5,
     priority=Priority.MEDIUM,
-    due_time=600,   # 10:00
+    due_time=600,
 ))
 
 biscuit.add_task(Task(
@@ -43,8 +94,8 @@ biscuit.add_task(Task(
     description="30-minute walk around the block",
     duration_minutes=30,
     priority=Priority.HIGH,
-    due_time=540,   # 09:00
-    frequency=Frequency.DAILY,   # recurs every day
+    due_time=540,
+    frequency=Frequency.DAILY,
 ))
 
 biscuit.add_task(Task(
@@ -52,8 +103,8 @@ biscuit.add_task(Task(
     description="Morning kibble — 1 cup",
     duration_minutes=10,
     priority=Priority.HIGH,
-    due_time=510,   # 08:30  — added last but earliest due time
-    frequency=Frequency.ONCE,    # one-off, no recurrence
+    due_time=510,
+    frequency=Frequency.ONCE,
 ))
 
 whiskers.add_task(Task(
@@ -61,171 +112,173 @@ whiskers.add_task(Task(
     description="Brush coat and check ears",
     duration_minutes=15,
     priority=Priority.MEDIUM,
-    due_time=630,   # 10:30
-    frequency=Frequency.WEEKLY,  # recurs every 7 days
+    due_time=630,
+    frequency=Frequency.WEEKLY,
 ))
 
-# Mark Whiskers' Litter Box complete to demonstrate the completed filter
+# Mark Litter Box complete to demonstrate the completed filter
 whiskers.tasks[0].mark_complete()
 
 # ---------------------------------------------------------------------------
-# Scheduler + raw task list
+# Scheduler
 # ---------------------------------------------------------------------------
 
 scheduler = Scheduler(owner=alex)
-all_tasks = scheduler.collect_all_tasks()   # includes completed and pending
+all_tasks = scheduler.collect_all_tasks()
 
 # ---------------------------------------------------------------------------
-# sort_by_time — show unsorted vs sorted
+# Task table — as added (unsorted)
 # ---------------------------------------------------------------------------
 
-print("===== Tasks as added (out of order) =====")
-for pet, task in all_tasks:
-    status = "DONE" if task.completed else "pending"
-    print(f"  {pet.name:<12} {task.title:<20} due {task.due_time // 60:02d}:{task.due_time % 60:02d}  [{status}]")
+def _fmt(m: int) -> str:
+    return f"{m // 60:02d}:{m % 60:02d}"
 
-print()
-print("===== sort_by_time: earliest due first =====")
-for pet, task in scheduler.sort_by_time(all_tasks):
-    status = "DONE" if task.completed else "pending"
-    print(f"  {pet.name:<12} {task.title:<20} due {task.due_time // 60:02d}:{task.due_time % 60:02d}  [{status}]")
 
-# ---------------------------------------------------------------------------
-# filter_tasks — pending only, Biscuit only, Biscuit pending only
-# ---------------------------------------------------------------------------
+def task_rows(pairs):
+    rows = []
+    for pet, task in pairs:
+        icon = species_icon(pet.species)
+        rows.append([
+            f"{icon} {pet.name}",
+            task.title,
+            priority_label(task.priority),
+            _fmt(task.due_time),
+            f"{task.duration_minutes} min",
+            FREQ_EMOJI[task.frequency],
+            status_label(task.completed),
+        ])
+    return rows
 
-print()
-print("===== filter: pending tasks only =====")
-for pet, task in scheduler.filter_tasks(all_tasks, completed=False):
-    print(f"  {pet.name:<12} {task.title}")
 
-print()
-print("===== filter: completed tasks only =====")
-for pet, task in scheduler.filter_tasks(all_tasks, completed=True):
-    print(f"  {pet.name:<12} {task.title}")
+TASK_HEADERS = ["Pet", "Task", "Priority", "Due", "Duration", "Repeats", "Status"]
 
-print()
-print("===== filter: Biscuit's tasks only =====")
-for pet, task in scheduler.filter_tasks(all_tasks, pet_name="Biscuit"):
-    print(f"  {pet.name:<12} {task.title}")
+section("Tasks as added (out of order)")
+print(tabulate(task_rows(all_tasks), headers=TASK_HEADERS, tablefmt="rounded_outline"))
 
-print()
-print("===== filter: Biscuit's pending tasks (both filters combined) =====")
-for pet, task in scheduler.filter_tasks(all_tasks, completed=False, pet_name="Biscuit"):
-    print(f"  {pet.name:<12} {task.title}")
+section("sort_by_time: earliest due first")
+print(tabulate(task_rows(scheduler.sort_by_time(all_tasks)), headers=TASK_HEADERS, tablefmt="rounded_outline"))
 
 # ---------------------------------------------------------------------------
-# Generate and print full plan
+# Filtered views
 # ---------------------------------------------------------------------------
 
-print()
-print("===== Today's Schedule =====")
+section("filter: pending tasks only")
+pending_rows = [
+    [f"{species_icon(p.species)} {p.name}", t.title, priority_label(t.priority)]
+    for p, t in scheduler.filter_tasks(all_tasks, completed=False)
+]
+print(tabulate(pending_rows, headers=["Pet", "Task", "Priority"], tablefmt="simple_outline"))
+
+section("filter: completed tasks only")
+done_rows = [
+    [f"{species_icon(p.species)} {p.name}", t.title, priority_label(t.priority)]
+    for p, t in scheduler.filter_tasks(all_tasks, completed=True)
+]
+print(tabulate(done_rows, headers=["Pet", "Task", "Priority"], tablefmt="simple_outline"))
+
+section("filter: Biscuit's pending tasks (combined)")
+biscuit_rows = [
+    [f"{species_icon(p.species)} {p.name}", t.title, priority_label(t.priority), _fmt(t.due_time)]
+    for p, t in scheduler.filter_tasks(all_tasks, completed=False, pet_name="Biscuit")
+]
+print(tabulate(biscuit_rows, headers=["Pet", "Task", "Priority", "Due"], tablefmt="simple_outline"))
+
+# ---------------------------------------------------------------------------
+# Daily schedule
+# ---------------------------------------------------------------------------
+
+section("Today's Schedule")
 plan = scheduler.generate_plan()
+
+schedule_rows = []
 for e in plan.entries:
-    start = f"{e.start_time // 60:02d}:{e.start_time % 60:02d}"
-    end   = f"{e.end_time   // 60:02d}:{e.end_time   % 60:02d}"
-    print(f"  {start} - {end}  {e.pet.name:<12} {e.task.title} [{e.task.priority.name}]")
+    icon = species_icon(e.pet.species)
+    slot = f"{_fmt(e.start_time)} – {_fmt(e.end_time)}"
+    schedule_rows.append([
+        slot,
+        f"{icon} {e.pet.name}",
+        e.task.title,
+        priority_label(e.task.priority),
+        f"{e.task.duration_minutes} min",
+    ])
+
+print(tabulate(schedule_rows, headers=["Time Slot", "Pet", "Task", "Priority", "Duration"], tablefmt="rounded_outline"))
+print(Fore.CYAN + f"  Total: {plan.total_time_used()} / {alex.available_minutes} min used" + Style.RESET_ALL)
 
 if plan.skipped_tasks:
     print()
-    print("Skipped:")
-    for pet, task, reason in plan.skipped_tasks:
-        print(f"  {pet.name:<12} {task.title} (reason: {reason})")
+    skipped_rows = [
+        [f"{species_icon(p.species)} {p.name}", t.title, priority_label(t.priority),
+         Fore.RED + reason + Style.RESET_ALL]
+        for p, t, reason in plan.skipped_tasks
+    ]
+    print(tabulate(skipped_rows, headers=["Pet", "Task", "Priority", "Skipped reason"], tablefmt="simple_outline"))
 
 # ---------------------------------------------------------------------------
-# Recurrence demo — mark_task_complete with timedelta
+# Recurrence demo
 # ---------------------------------------------------------------------------
 
-print()
-print("===== Recurrence: mark tasks complete =====")
+section("Recurrence: mark tasks complete")
 
 def show_pet_tasks(pet: Pet) -> None:
-    for t in pet.list_tasks():
-        status = "DONE" if t.completed else "pending"
-        print(f"    {t.title:<22} freq={t.frequency.value:<8} due_date={t.due_date}  [{status}]")
+    rows = [
+        [t.title, FREQ_EMOJI[t.frequency], str(t.due_date), status_label(t.completed)]
+        for t in pet.list_tasks()
+    ]
+    print(tabulate(rows, headers=["Task", "Repeats", "Due date", "Status"], tablefmt="simple"))
 
-# DAILY: Morning Walk — next occurrence should be today + 1 day
 walk = biscuit.tasks[0]
-print(f"\n  Completing '{walk.title}' (DAILY) for {biscuit.name}...")
+print(f"\n  {Fore.YELLOW}Completing '{walk.title}' (DAILY) for {biscuit.name}...{Style.RESET_ALL}")
 next_walk = scheduler.mark_task_complete(biscuit, walk)
-print(f"  timedelta used: 1 day  ->  next due_date = {next_walk.due_date}")
+print(f"  timedelta: 1 day  →  next due_date = {Fore.GREEN}{next_walk.due_date}{Style.RESET_ALL}")
 show_pet_tasks(biscuit)
 
-# ONCE: Feeding — no new task should be created
 feeding = biscuit.tasks[1]
-print(f"\n  Completing '{feeding.title}' (ONCE) for {biscuit.name}...")
+print(f"\n  {Fore.YELLOW}Completing '{feeding.title}' (ONCE) for {biscuit.name}...{Style.RESET_ALL}")
 result = scheduler.mark_task_complete(biscuit, feeding)
-print(f"  No recurrence — mark_task_complete returned: {result}")
+print(f"  No recurrence — mark_task_complete returned: {Fore.RED}{result}{Style.RESET_ALL}")
 show_pet_tasks(biscuit)
 
-# WEEKLY: Grooming — next occurrence should be today + 7 days
 grooming = whiskers.tasks[1]
-print(f"\n  Completing '{grooming.title}' (WEEKLY) for {whiskers.name}...")
+print(f"\n  {Fore.YELLOW}Completing '{grooming.title}' (WEEKLY) for {whiskers.name}...{Style.RESET_ALL}")
 next_groom = scheduler.mark_task_complete(whiskers, grooming)
-print(f"  timedelta used: 7 days  ->  next due_date = {next_groom.due_date}")
+print(f"  timedelta: 7 days  →  next due_date = {Fore.GREEN}{next_groom.due_date}{Style.RESET_ALL}")
 show_pet_tasks(whiskers)
 
 # ---------------------------------------------------------------------------
-# Conflict detection demo
+# Conflict detection
 # ---------------------------------------------------------------------------
 
-# Build a fresh owner + pets with tasks that intentionally overlap in time.
-#
-#   Vet Check     : 30 min, due 09:30  → ideal window [09:00 - 09:30]
-#   Bath Time     : 20 min, due 09:20  → ideal window [09:00 - 09:20]  ← overlaps Vet Check
-#   Evening Walk  : 30 min, due 18:00  → ideal window [17:30 - 18:00]  ← no overlap
-#
-# Vet Check and Bath Time both need to start at 09:00 to hit their deadlines,
-# so the owner physically cannot do both without one running over.
-
 sam   = Owner(name="Sam", available_minutes=180, day_start=480)
-buddy = Pet(name="Buddy", species="Dog", breed="Beagle", age=4)
-luna  = Pet(name="Luna",  species="Cat", breed="Siamese", age=2)
+buddy = Pet(name="Buddy", species="Dog",  breed="Beagle",  age=4)
+luna  = Pet(name="Luna",  species="Cat",  breed="Siamese", age=2)
 sam.add_pet(buddy)
 sam.add_pet(luna)
 
-buddy.add_task(Task(
-    title="Vet Check",
-    description="Annual checkup",
-    duration_minutes=30,
-    priority=Priority.HIGH,
-    due_time=570,   # 09:30  → window [09:00, 09:30]
-))
-
-luna.add_task(Task(
-    title="Bath Time",
-    description="Full wash and dry",
-    duration_minutes=20,
-    priority=Priority.HIGH,
-    due_time=560,   # 09:20  → window [09:00, 09:20]  ← overlaps Vet Check
-))
-
-buddy.add_task(Task(
-    title="Evening Walk",
-    description="Long walk at the park",
-    duration_minutes=30,
-    priority=Priority.MEDIUM,
-    due_time=1080,  # 18:00  → window [17:30, 18:00]  ← no overlap
-))
+buddy.add_task(Task("Vet Check",    "Annual checkup",        30, Priority.HIGH,   due_time=570))
+luna.add_task( Task("Bath Time",    "Full wash and dry",     20, Priority.HIGH,   due_time=560))
+buddy.add_task(Task("Evening Walk", "Long walk at the park", 30, Priority.MEDIUM, due_time=1080))
 
 conflict_scheduler = Scheduler(owner=sam)
 conflict_tasks = conflict_scheduler.collect_all_tasks()
 
-print()
-print("===== Conflict Detection =====")
-def fmt(m: int) -> str:
-    return f"{m // 60:02d}:{m % 60:02d}"
+section("Conflict Detection")
 
-print()
-print("Tasks and their ideal windows:")
-for pet, task in conflict_tasks:
-    start = task.due_time - task.duration_minutes
-    print(f"  {pet.name:<8} {task.title:<16} window [{fmt(start)} - {fmt(task.due_time)}]")
+window_rows = [
+    [
+        f"{species_icon(p.species)} {p.name}",
+        t.title,
+        f"{_fmt(t.due_time - t.duration_minutes)} – {_fmt(t.due_time)}",
+        priority_label(t.priority),
+    ]
+    for p, t in conflict_tasks
+]
+print(tabulate(window_rows, headers=["Pet", "Task", "Ideal window", "Priority"], tablefmt="rounded_outline"))
 
 print()
 warnings = conflict_scheduler.detect_conflicts(conflict_tasks)
 if warnings:
     for w in warnings:
-        print(f"  {w}")
+        print(Fore.RED + Style.BRIGHT + "  ⚠️  " + w + Style.RESET_ALL)
 else:
-    print("  No conflicts detected.")
+    print(Fore.GREEN + "  ✅ No conflicts detected." + Style.RESET_ALL)

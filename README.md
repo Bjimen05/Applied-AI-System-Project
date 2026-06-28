@@ -206,6 +206,68 @@ except FileNotFoundError:
 
 | Collect all tasks | `Scheduler.collect_all_tasks` | Returns every task across all pets regardless of completion status — needed to use `filter_tasks` across both pending and done tasks. |
 
+## 🎨 CLI Formatting
+
+`main.py` uses two libraries to make terminal output structured and readable at a glance.
+
+### Libraries used
+
+| Library | Version | Purpose |
+|---|---|---|
+| `tabulate` | ≥ 0.9 | Renders Python lists as bordered ASCII/Unicode tables with selectable styles |
+| `colorama` | ≥ 0.4 | Cross-platform ANSI color codes — wraps stdout so colors work on Windows without extra setup |
+
+`sys.stdout.reconfigure(encoding="utf-8")` is called before either library initializes so emoji and Unicode box-drawing characters render correctly on Windows (which defaults to cp1252).
+
+### Formatting features
+
+**Emoji species icons** — `species_icon(species)` maps each pet's species string to an emoji prefix on the Pet column:
+
+| Species | Icon |
+|---|---|
+| dog | 🐕 |
+| cat | 🐈 |
+| rabbit | 🐇 |
+| other | 🐾 |
+
+**Color-coded priority labels** — `priority_label(priority)` returns a colorama-styled string combining an emoji dot and the priority name:
+
+| Priority | Color | Label |
+|---|---|---|
+| HIGH | Red | 🔴 HIGH |
+| MEDIUM | Yellow | 🟡 MED |
+| LOW | Green | 🟢 LOW |
+
+**Status indicators** — `status_label(completed)` returns a colorama-styled status badge:
+
+| State | Color | Badge |
+|---|---|---|
+| Pending | Yellow | ⏳ pending |
+| Done | Green | ✅ done |
+
+**Frequency badges** — `FREQ_EMOJI` dict maps each `Frequency` enum to a fixed-width emoji label (`1️⃣  once`, `🔁 daily`, `📅 weekly`) so the Repeats column stays aligned.
+
+**Table styles** — `tabulate` is called with two styles depending on context:
+- `"rounded_outline"` — full bordered table with rounded corners for primary views (task list, schedule, conflict windows)
+- `"simple_outline"` — lighter bordered table for filter result views
+- `"simple"` — headerless minimal style for inline per-pet recurrence snapshots
+
+**Section headers** — the `section(title)` helper prints a cyan `─── Title ──────` divider line using `colorama.Fore.CYAN + Style.BRIGHT` to visually separate output blocks without adding blank noise.
+
+**Conflict warnings** — conflict strings from `detect_conflicts` are printed with `Fore.RED + Style.BRIGHT + "⚠️  "` prefix so they stand out immediately.
+
+### Functions added to `main.py`
+
+| Function | Description |
+|---|---|
+| `species_icon(species)` | Returns emoji for a pet's species string |
+| `priority_label(priority)` | Returns colorama-styled priority string |
+| `status_label(completed)` | Returns colorama-styled ✅/⏳ badge |
+| `task_rows(pairs)` | Builds a list of display rows from `(Pet, Task)` pairs for use with `tabulate` |
+| `show_pet_tasks(pet)` | Prints a `tabulate` table of all tasks for one pet (used in recurrence demo) |
+| `section(title)` | Prints a cyan divider line to separate output sections |
+| `_fmt(minutes)` | Converts minutes-since-midnight to `HH:MM` string |
+
 ## 📸 Demo Walkthrough
 
 ### UI Features
