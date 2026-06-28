@@ -2,6 +2,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from enum import Enum
+import json
+from pathlib import Path
+
+from marshmallow import Schema, fields as mf, post_load, EXCLUDE
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +358,39 @@ class Scheduler:
             skipped_tasks=skipped,
         )
 
+    def score_task(self, task: Task) -> float:
+        """Compute a weighted priority score that combines three signals.
+
+        Score = priority base + urgency bonus + efficiency bonus
+
+        - Priority base: HIGH=30, MEDIUM=20, LOW=10
+        - Urgency bonus (0–10): tasks whose deadline is closer to day_start
+          score higher, normalized over an 8-hour window
+        - Efficiency bonus (0–5): shorter tasks score slightly higher,
+          so when two tasks tie on priority and urgency the one that
+          consumes less of the budget is preferred
+
+        Higher score → scheduled sooner by sort_by_weight.
+        """
+        base = {Priority.HIGH: 30.0, Priority.MEDIUM: 20.0, Priority.LOW: 10.0}[task.priority]
+
+        window_minutes = 480  # normalize urgency over an 8-hour day
+        minutes_until_due = max(task.due_time - self.owner.day_start, 0)
+        urgency_bonus = max(0.0, (window_minutes - minutes_until_due) / window_minutes) * 10.0
+
+        efficiency_bonus = max(0.0, (60 - task.duration_minutes) / 60) * 5.0
+
+        return base + urgency_bonus + efficiency_bonus
+
+    def sort_by_weight(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
+        """Return tasks sorted by weighted priority score descending (highest first).
+
+        Uses score_task to blend priority, urgency, and duration efficiency into
+        a single float, giving more nuanced ordering than a fixed enum rank.
+        Pending and completed tasks are both accepted; score applies to all.
+        """
+        return sorted(tasks, key=lambda pt: self.score_task(pt[1]), reverse=True)
+
     def _sort_tasks(self, tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """Sort tasks by urgency-adjusted priority, then due time, then duration.
 
@@ -371,3 +408,96 @@ class Scheduler:
             return (rank, task.due_time, task.duration_minutes)
 
         return sorted(tasks, key=sort_key)
+
+
+# ---------------------------------------------------------------------------
+# Marshmallow schemas — serialization / deserialization
+# ---------------------------------------------------------------------------
+
+class TaskSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    title            = mf.Str()
+    description      = mf.Str()
+    duration_minutes = mf.Int()
+    priority         = mf.Enum(Priority, by_value=False)   # serializes as "HIGH" / "MEDIUM" / "LOW"
+    due_time         = mf.Int()
+    completed        = mf.Bool()
+    frequency        = mf.Enum(Frequency, by_value=True)   # serializes as "once" / "daily" / "weekly"
+    due_date         = mf.Date(format="%Y-%m-%d")
+
+    @post_load
+    def make_task(self, data: dict, **_kwargs) -> Task:
+        return Task(**data)
+
+
+class PetSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    name    = mf.Str()
+    species = mf.Str()
+    breed   = mf.Str()
+    age     = mf.Int()
+    tasks   = mf.List(mf.Nested(TaskSchema))
+
+    @post_load
+    def make_pet(self, data: dict, **_kwargs) -> Pet:
+        tasks = data.pop("tasks", [])
+        pet = Pet(**data)
+        for t in tasks:
+            pet.add_task(t)
+        return pet
+
+
+class OwnerSchema(Schema):
+    class Meta:
+        unknown = EXCLUDE
+
+    name              = mf.Str()
+    available_minutes = mf.Int()
+    day_start         = mf.Int()
+    pets              = mf.List(mf.Nested(PetSchema))
+
+    @post_load
+    def make_owner(self, data: dict, **_kwargs) -> Owner:
+        pets = data.pop("pets", [])
+        owner = Owner(**data)
+        for p in pets:
+            owner.add_pet(p)
+        return owner
+
+
+# ---------------------------------------------------------------------------
+# Persistence helpers
+# ---------------------------------------------------------------------------
+
+_owner_schema = OwnerSchema()
+
+
+def save_to_json(owner: Owner, path: str | Path = "data.json") -> None:
+    """Serialize owner, their pets, and all tasks to a JSON file.
+
+    Enums are stored as their string name/value so the file is human-readable.
+    Overwrites the file on every call — call after any state change to keep
+    the saved data in sync.
+    """
+    payload = _owner_schema.dump(owner)
+    # dump() returns plain dicts; enums need manual conversion for readability
+    for pet_dict in payload.get("pets", []):
+        for task_dict in pet_dict.get("tasks", []):
+            task_dict["priority"]  = task_dict["priority"]   # already a str from dump
+            task_dict["frequency"] = task_dict["frequency"]  # already a str from dump
+
+    Path(path).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+
+def load_from_json(path: str | Path = "data.json") -> Owner:
+    """Deserialize an Owner (with pets and tasks) from a JSON file.
+
+    Raises FileNotFoundError if the file does not exist — callers should
+    handle this to gracefully start a fresh session when no save file is present.
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return _owner_schema.load(raw)

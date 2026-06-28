@@ -1,0 +1,35 @@
+{
+  "name": "Jordan",
+  "available_minutes": 120,
+  "day_start": 480,
+  "pets": [
+    {
+      "name": "Mochi",
+      "species": "dog",
+      "breed": "Mixed",
+      "age": 2,
+      "tasks": [
+        {
+          "title": "Morning walk",
+          "description": "",
+          "duration_minutes": 30,
+          "priority": "HIGH",
+          "due_time": 540,
+          "completed": false,
+          "frequency": "daily",
+          "due_date": "2026-06-28"
+        },
+        {
+          "title": "Feeding",
+          "description": "",
+          "duration_minutes": 10,
+          "priority": "MEDIUM",
+          "due_time": 510,
+          "completed": false,
+          "frequency": "once",
+          "due_date": "2026-06-28"
+        }
+      ]
+    }
+  ]
+}

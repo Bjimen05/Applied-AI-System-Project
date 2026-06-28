@@ -118,6 +118,76 @@ tests/test_pawpal.py::test_total_time_used_empty_plan PASSED             [100%]
 My confidence level is 5 stars based on my test results
 ```
 
+## 💾 Persistence
+
+PawPal+ saves the owner, their pets, and all tasks to a human-readable `data.json` file so the schedule survives between runs.
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `pawpal_system.py` | Added `TaskSchema`, `PetSchema`, `OwnerSchema` (marshmallow) and `save_to_json` / `load_from_json` module-level functions |
+| `requirements.txt` | Added `marshmallow>=3.18` |
+
+### How it works
+
+Three nested marshmallow schemas mirror the class hierarchy:
+
+```
+OwnerSchema
+  └── PetSchema  (list)
+        └── TaskSchema  (list)
+```
+
+- **`TaskSchema`** uses `mf.Enum` fields so `Priority` serializes as `"HIGH"` / `"MEDIUM"` / `"LOW"` and `Frequency` serializes as `"once"` / `"daily"` / `"weekly"` — both human-readable and round-trippable without any manual string conversion.
+- **`@post_load`** on each schema reconstructs the Python object from the deserialized dict, so `load_from_json` returns a fully typed `Owner` instance ready to pass straight to `Scheduler`.
+
+### Usage
+
+```python
+from pawpal_system import save_to_json, load_from_json
+
+# Save after any state change
+save_to_json(owner)               # writes data.json in the current directory
+save_to_json(owner, "saves/alex.json")  # or a custom path
+
+# Load at startup
+try:
+    owner = load_from_json()
+except FileNotFoundError:
+    owner = Owner(...)            # first run — no save file yet
+```
+
+### Example `data.json`
+
+```json
+{
+  "name": "Jordan",
+  "available_minutes": 120,
+  "day_start": 480,
+  "pets": [
+    {
+      "name": "Mochi",
+      "species": "dog",
+      "breed": "Mixed",
+      "age": 2,
+      "tasks": [
+        {
+          "title": "Morning walk",
+          "description": "",
+          "duration_minutes": 30,
+          "priority": "HIGH",
+          "due_time": 540,
+          "completed": false,
+          "frequency": "daily",
+          "due_date": "2026-06-28"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## 📐 Smarter Scheduling
 
 | Feature | Method(s) | Notes |
