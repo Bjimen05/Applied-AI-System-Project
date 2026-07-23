@@ -1,11 +1,20 @@
 """Offline RAG layer for PawPal+: keyword/Jaccard retrieval over a small,
 curated pet-care knowledge base. No external API — retrieval is entirely
 local so this feature works without an LLM or network access.
+
+Multi-source by default: the hand-written general-care KB below is merged
+with a second, independently editable source (data/breed_facts.json) at
+construction time, and callers can layer in a third source at runtime via
+add_documents() — e.g. an owner's own notes about a specific pet.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+from pathlib import Path
 import re
+
+_BREED_FACTS_PATH = Path(__file__).parent / "data" / "breed_facts.json"
 
 _STOPWORDS = {
     "a", "an", "the", "and", "or", "for", "to", "of", "in", "on", "with",
@@ -125,6 +134,33 @@ KNOWLEDGE_BASE: list[Document] = [
 RISK_CATEGORIES = {"medication", "vet"}
 
 
+def load_documents_from_json(path: str | Path) -> list[Document]:
+    """Load a list of Documents from an external JSON file — a second,
+    independently editable knowledge source. Expected shape per entry:
+    {"doc_id": str, "species": str, "category": str, "text": str,
+     "keywords": [str, ...]} ("keywords" is optional).
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return [
+        Document(
+            doc_id=entry["doc_id"],
+            species=entry["species"],
+            category=entry["category"],
+            text=entry["text"],
+            keywords=set(entry.get("keywords", [])),
+        )
+        for entry in raw
+    ]
+
+
+def _default_documents() -> list[Document]:
+    """The built-in KB merged with the breed-facts source, if present."""
+    docs = list(KNOWLEDGE_BASE)
+    if _BREED_FACTS_PATH.exists():
+        docs.extend(load_documents_from_json(_BREED_FACTS_PATH))
+    return docs
+
+
 @dataclass
 class RetrievedPassage:
     document: Document
@@ -132,10 +168,19 @@ class RetrievedPassage:
 
 
 class Retriever:
-    """Jaccard-overlap retrieval over the pet-care knowledge base."""
+    """Jaccard-overlap retrieval over the pet-care knowledge base.
+
+    With no documents given, merges two sources: the hand-written KB in
+    this module and data/breed_facts.json. add_documents() layers in a
+    third source at runtime (e.g. an owner's custom note about one pet).
+    """
 
     def __init__(self, documents: list[Document] | None = None) -> None:
-        self.documents = documents if documents is not None else KNOWLEDGE_BASE
+        self.documents = documents if documents is not None else _default_documents()
+
+    def add_documents(self, documents: list[Document]) -> None:
+        """Add custom documents at runtime without replacing existing sources."""
+        self.documents = self.documents + list(documents)
 
     def retrieve(
         self, query: str, *, species: str | None = None, top_k: int = 3,

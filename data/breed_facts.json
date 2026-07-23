@@ -1,0 +1,37 @@
+[
+  {
+    "doc_id": "breed-golden-retriever-1",
+    "species": "dog",
+    "category": "exercise",
+    "text": "Golden Retrievers are a high-energy sporting breed and often need closer to 60 minutes of exercise a day, not just 30, to avoid boredom-driven chewing.",
+    "keywords": ["golden", "retriever", "energy", "exercise"]
+  },
+  {
+    "doc_id": "breed-beagle-1",
+    "species": "dog",
+    "category": "feeding",
+    "text": "Beagles are a breed especially prone to overeating and obesity, so measured portions matter more for them than free-feeding kibble.",
+    "keywords": ["beagle", "obesity", "portion", "feeding"]
+  },
+  {
+    "doc_id": "breed-tabby-1",
+    "species": "cat",
+    "category": "exercise",
+    "text": "Tabby cats are food-motivated and prone to weight gain, so interactive play right before meals is especially effective for them.",
+    "keywords": ["tabby", "weight", "play", "exercise"]
+  },
+  {
+    "doc_id": "breed-siamese-1",
+    "species": "cat",
+    "category": "vet",
+    "text": "Siamese cats are prone to dental disease as a breed; a dental check beyond the standard annual exam is often recommended.",
+    "keywords": ["siamese", "dental", "vet"]
+  },
+  {
+    "doc_id": "breed-holland-lop-1",
+    "species": "rabbit",
+    "category": "grooming",
+    "text": "Holland Lops have dense fur and folded ears that need regular checks for wax buildup, in addition to normal brushing.",
+    "keywords": ["holland", "lop", "ears", "grooming"]
+  }
+]

@@ -3,7 +3,7 @@ import logging
 import streamlit as st
 from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task, load_from_json
 from evaluator import Evaluator, Severity, safe_save_plan
-from retriever import Retriever
+from retriever import Document, Retriever
 from specialized_model import TaskClassifier, UrgencyTier
 from agent import PawPalAgent
 
@@ -12,7 +12,11 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+if "custom_notes" not in st.session_state:
+    st.session_state.custom_notes = []
+
 retriever = Retriever()
+retriever.add_documents(st.session_state.custom_notes)
 classifier = TaskClassifier(retriever=retriever)
 
 TIER_ICON = {
@@ -179,6 +183,23 @@ else:
                     st.markdown(f"**{t.title}** — {hits[0].document.text}")
             if not any_hit:
                 st.caption("No matching care-guide passages for these tasks yet.")
+
+            st.markdown("---")
+            note_text = st.text_input(
+                f"Add a custom care note for {st.session_state.active_pet.name}",
+                key="custom_note_input",
+                placeholder="e.g. Buddy is allergic to chicken, use turkey-based kibble",
+            )
+            if st.button("Add note") and note_text.strip():
+                doc = Document(
+                    doc_id=f"custom-{st.session_state.active_pet.name}-{len(st.session_state.custom_notes)}",
+                    species=st.session_state.active_pet.species,
+                    category="general",
+                    text=note_text.strip(),
+                )
+                st.session_state.custom_notes.append(doc)
+                st.success("Note added — it'll be included in future care tips for this species.")
+                st.rerun()
 
         # -----------------------------------------------------------------
         # Specialized model — structured urgency assessment per task
