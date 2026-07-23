@@ -1,5 +1,6 @@
 import streamlit as st
-from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task
+from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task, load_from_json
+from evaluator import Evaluator, Severity, safe_save_plan
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -10,10 +11,18 @@ st.title("🐾 PawPal+")
 # ---------------------------------------------------------------------------
 
 if "owner" not in st.session_state:
-    st.session_state.owner = None
+    try:
+        st.session_state.owner = load_from_json()
+    except FileNotFoundError:
+        st.session_state.owner = None
 
 if "active_pet" not in st.session_state:
-    st.session_state.active_pet = None
+    st.session_state.active_pet = (
+        st.session_state.owner.list_pets()[0] if st.session_state.owner and st.session_state.owner.list_pets() else None
+    )
+
+if "reviewed_risky_plan" not in st.session_state:
+    st.session_state.reviewed_risky_plan = False
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -200,3 +209,46 @@ if st.button("Generate schedule"):
 
         with st.expander("Why was this plan chosen?"):
             st.text(plan.explain())
+
+        # ---------------------------------------------------------------
+        # Reliability layer — guardrails gate whether this plan can be saved
+        # ---------------------------------------------------------------
+        st.markdown("#### Plan Review")
+        findings = Evaluator(plan).run()
+        st.session_state.pending_plan = plan
+        st.session_state.pending_findings = findings
+
+        if not findings:
+            st.success("Evaluator: no issues found.")
+        for f in findings:
+            if f.severity == Severity.CRITICAL:
+                st.error(f"🚫 {f.message}")
+            elif f.severity == Severity.WARNING:
+                st.warning(("🩺 " if f.requires_human_review else "⚠️ ") + f.message)
+            else:
+                st.info(f.message)
+
+        needs_review = Evaluator.requires_human_review(findings)
+        blocked = not Evaluator.passed(findings)
+
+        if blocked:
+            st.error("This plan has a structural problem and cannot be saved until it's fixed.")
+        elif needs_review:
+            st.session_state.reviewed_risky_plan = st.checkbox(
+                "I've reviewed the flagged health/medication task(s) above and approve this plan.",
+                value=st.session_state.reviewed_risky_plan,
+            )
+        else:
+            st.session_state.reviewed_risky_plan = True
+
+        save_disabled = blocked or (needs_review and not st.session_state.reviewed_risky_plan)
+        if st.button("💾 Save Plan", disabled=save_disabled):
+            saved, _ = safe_save_plan(
+                st.session_state.owner, plan,
+                human_reviewed=st.session_state.reviewed_risky_plan,
+            )
+            if saved:
+                st.success("Plan saved to data.json.")
+                st.session_state.reviewed_risky_plan = False
+            else:
+                st.error("Save blocked by the evaluator — resolve the issues above first.")

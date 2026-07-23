@@ -1,0 +1,61 @@
+flowchart TB
+    User(["👤 Pet Owner"])
+
+    User -->|"1: request (e.g. 'plan my day', 'why this order?', new task)"| Agent
+
+    subgraph AGENTIC["🤖 Agentic Workflow (orchestrator)"]
+        Agent["Agent Orchestrator<br/>plans steps, calls tools, decides next action"]
+    end
+
+    subgraph RAGSUB["📚 RAG"]
+        Retriever["Retriever"]
+        KB[("Knowledge Base / Vector Store<br/>pet-care guides, species/breed facts, vet-advice docs")]
+        Retriever <--> KB
+    end
+
+    subgraph MODELSUB["🎯 Specialized Model"]
+        SpecModel["Fine-tuned / Structured-Prompt Model<br/>task classification, urgency scoring, plain-English explanations"]
+    end
+
+    subgraph CORE["⚙️ Existing PawPal+ Core (deterministic)"]
+        Scheduler["Scheduler<br/>generate_plan, detect_conflicts, sort_by_time"]
+        Data[("data.json<br/>Owner / Pet / Task store")]
+        Scheduler <--> Data
+    end
+
+    Agent -->|"2a: retrieve care knowledge"| Retriever
+    Retriever -->|"context passages"| Agent
+
+    Agent -->|"2b: classify / explain"| SpecModel
+    SpecModel -->|"structured output"| Agent
+
+    Agent -->|"2c: build/update schedule"| Scheduler
+    Scheduler -->|"candidate plan + skip reasons"| Agent
+
+    Agent -->|"3: draft result"| Evaluator
+
+    subgraph RELSUB["🛡️ Reliability & Testing"]
+        Evaluator["Evaluator / Guardrails<br/>checks: schedule feasible? citations grounded? no hallucinated tasks?"]
+        SelfCheck{"Self-check loop<br/>confidence / consistency OK?"}
+        TestSuite[["Automated Test Suite (pytest)<br/>regression checks on Scheduler + prompts"]]
+
+        Evaluator --> SelfCheck
+        SelfCheck -->|"fail: retry with feedback"| Agent
+        TestSuite -.->|"CI gate before deploy"| Scheduler
+        TestSuite -.->|"CI gate before deploy"| SpecModel
+    end
+
+    SelfCheck -->|"pass"| Output(["📋 Daily Plan + Explanation"])
+    SelfCheck -->|"low confidence / high-risk change<br/>(e.g. medication task)"| HumanReview[["🧑‍⚕️ Human-in-the-loop Review<br/>(owner approves/edits before it's final)"]]
+
+    HumanReview -->|"correction or approval"| Agent
+    HumanReview -->|"approved"| Output
+
+    Output -->|"4: shown to user"| User
+    User -.->|"feedback: mark complete, edit, reject"| Agent
+
+    style User fill:#e8f0fe,stroke:#4285f4
+    style Output fill:#e6f4ea,stroke:#34a853
+    style HumanReview fill:#fef7e0,stroke:#f9ab00
+    style Evaluator fill:#fce8e6,stroke:#ea4335
+    style SelfCheck fill:#fce8e6,stroke:#ea4335

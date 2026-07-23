@@ -1,10 +1,13 @@
 import sys
+import tempfile
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 
 from colorama import Fore, Style, init as colorama_init
 from tabulate import tabulate
 
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority, Frequency
+from evaluator import Evaluator, Severity, safe_save_plan
 
 colorama_init(autoreset=True)
 
@@ -215,6 +218,30 @@ if plan.skipped_tasks:
     print(tabulate(skipped_rows, headers=["Pet", "Task", "Priority", "Skipped reason"], tablefmt="simple_outline"))
 
 # ---------------------------------------------------------------------------
+# Reliability layer: evaluator gates whether the plan is allowed to persist
+# ---------------------------------------------------------------------------
+
+section("Evaluator: guardrail checks on today's plan")
+
+findings = Evaluator(plan).run()
+if not findings:
+    print(Fore.GREEN + "  ✅ No issues found." + Style.RESET_ALL)
+for f in findings:
+    color = {
+        Severity.CRITICAL: Fore.RED,
+        Severity.WARNING: Fore.YELLOW,
+        Severity.INFO: Fore.CYAN,
+    }[f.severity]
+    tag = "🩺 REVIEW" if f.requires_human_review else f.severity.value.upper()
+    print(color + f"  [{tag}] {f.message}" + Style.RESET_ALL)
+
+saved, _ = safe_save_plan(alex, plan, human_reviewed=False)
+if saved:
+    print(Fore.GREEN + "  Plan saved to data.json." + Style.RESET_ALL)
+else:
+    print(Fore.RED + "  Save BLOCKED by evaluator — plan not written to data.json." + Style.RESET_ALL)
+
+# ---------------------------------------------------------------------------
 # Recurrence demo
 # ---------------------------------------------------------------------------
 
@@ -282,3 +309,25 @@ if warnings:
         print(Fore.RED + Style.BRIGHT + "  ⚠️  " + w + Style.RESET_ALL)
 else:
     print(Fore.GREEN + "  ✅ No conflicts detected." + Style.RESET_ALL)
+
+# ---------------------------------------------------------------------------
+# Evaluator on a health-related plan — demonstrates the human-review gate
+# ---------------------------------------------------------------------------
+
+section("Evaluator: 'Vet Check' requires human sign-off before saving")
+
+sam_plan = conflict_scheduler.generate_plan()
+sam_findings = Evaluator(sam_plan).run()
+for f in sam_findings:
+    tag = "🩺 REVIEW" if f.requires_human_review else f.severity.value.upper()
+    print(Fore.YELLOW + f"  [{tag}] {f.message}" + Style.RESET_ALL)
+
+demo_path = Path(tempfile.gettempdir()) / "pawpal_demo_sam.json"
+
+saved, _ = safe_save_plan(sam, sam_plan, path=demo_path, human_reviewed=False)
+print(Fore.RED + "  Save BLOCKED (not yet reviewed)." + Style.RESET_ALL if not saved
+      else Fore.GREEN + "  Saved." + Style.RESET_ALL)
+
+saved, _ = safe_save_plan(sam, sam_plan, path=demo_path, human_reviewed=True)
+print(Fore.GREEN + "  Saved after human review." + Style.RESET_ALL if saved
+      else Fore.RED + "  Still blocked." + Style.RESET_ALL)

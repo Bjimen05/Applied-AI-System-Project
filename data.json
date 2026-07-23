@@ -1,33 +1,79 @@
 {
-  "name": "Jordan",
+  "name": "Alex",
   "available_minutes": 120,
   "day_start": 480,
   "pets": [
     {
-      "name": "Mochi",
-      "species": "dog",
-      "breed": "Mixed",
-      "age": 2,
+      "name": "Biscuit",
+      "species": "Dog",
+      "breed": "Golden Retriever",
+      "age": 3,
       "tasks": [
         {
-          "title": "Morning walk",
-          "description": "",
+          "title": "Morning Walk",
+          "description": "30-minute walk around the block",
           "duration_minutes": 30,
           "priority": "HIGH",
           "due_time": 540,
           "completed": false,
           "frequency": "daily",
-          "due_date": "2026-06-28"
+          "due_date": "2026-07-22"
         },
         {
           "title": "Feeding",
-          "description": "",
+          "description": "Morning kibble \u2014 1 cup",
           "duration_minutes": 10,
-          "priority": "MEDIUM",
+          "priority": "HIGH",
           "due_time": 510,
           "completed": false,
           "frequency": "once",
-          "due_date": "2026-06-28"
+          "due_date": "2026-07-22"
+        }
+      ]
+    },
+    {
+      "name": "Whiskers",
+      "species": "Cat",
+      "breed": "Tabby",
+      "age": 5,
+      "tasks": [
+        {
+          "title": "Litter Box",
+          "description": "Scoop and refill litter box",
+          "duration_minutes": 5,
+          "priority": "MEDIUM",
+          "due_time": 600,
+          "completed": true,
+          "frequency": "once",
+          "due_date": "2026-07-22"
+        },
+        {
+          "title": "Grooming",
+          "description": "Brush coat and check ears",
+          "duration_minutes": 15,
+          "priority": "MEDIUM",
+          "due_time": 630,
+          "completed": false,
+          "frequency": "weekly",
+          "due_date": "2026-07-22"
+        }
+      ]
+    },
+    {
+      "name": "Pebble",
+      "species": "Rabbit",
+      "breed": "Holland Lop",
+      "age": 2,
+      "tasks": [
+        {
+          "title": "Enrichment",
+          "description": "Free-roam time and tunnel play",
+          "duration_minutes": 20,
+          "priority": "LOW",
+          "due_time": 660,
+          "completed": false,
+          "frequency": "once",
+          "due_date": "2026-07-22"
         }
       ]
     }
