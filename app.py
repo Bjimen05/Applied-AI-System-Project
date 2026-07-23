@@ -3,6 +3,7 @@ from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task, load
 from evaluator import Evaluator, Severity, safe_save_plan
 from retriever import Retriever
 from specialized_model import TaskClassifier, UrgencyTier
+from agent import PawPalAgent
 
 retriever = Retriever()
 classifier = TaskClassifier(retriever=retriever)
@@ -186,105 +187,105 @@ else:
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Schedule generation
+# Schedule generation — orchestrated by the agent
 # ---------------------------------------------------------------------------
 
 st.subheader("Build Schedule")
 
-if st.button("Generate schedule"):
+if st.button("🤖 Run Agent & Build Schedule"):
     if st.session_state.owner is None:
         st.warning("Set an owner and pet first.")
     else:
-        scheduler = Scheduler(owner=st.session_state.owner)
+        agent = PawPalAgent(st.session_state.owner, retriever=retriever, classifier=classifier)
+        st.session_state.agent_result = agent.run(
+            human_reviewed=st.session_state.reviewed_risky_plan,
+            save_path="data.json",
+        )
 
-        # Cross-pet conflict check before generating
-        all_pending = scheduler.collect_tasks()
-        conflicts = scheduler.detect_conflicts(all_pending)
-        if conflicts:
-            st.markdown("**Conflicts across all pets:**")
-            for w in conflicts:
-                st.warning(w)
+if st.session_state.get("agent_result") is not None:
+    result = st.session_state.agent_result
+    plan = result.plan
 
-        plan = scheduler.generate_plan()
+    st.markdown("#### Agent actions")
+    for a in result.actions_taken:
+        st.caption(f"• {a}")
 
-        st.markdown("#### Today's Plan")
+    st.markdown("#### Today's Plan")
 
-        if plan.entries:
-            st.table([
-                {
-                    "Time slot": f"{fmt_time(e.start_time)} – {fmt_time(e.end_time)}",
-                    "Pet": e.pet.name,
-                    "Task": e.task.title,
-                    "Priority": e.task.priority.name,
-                    "Duration (min)": e.task.duration_minutes,
-                    "Repeats": e.task.frequency.value,
-                }
-                for e in plan.entries
-            ])
-            st.success(
-                f"Scheduled {len(plan.entries)} task(s) — "
-                f"{plan.total_time_used()} / {st.session_state.owner.available_minutes} min used."
-            )
-        else:
-            st.info("No tasks could be scheduled.")
+    if plan.entries:
+        st.table([
+            {
+                "Time slot": f"{fmt_time(e.start_time)} – {fmt_time(e.end_time)}",
+                "Pet": e.pet.name,
+                "Task": e.task.title,
+                "Priority": e.task.priority.name,
+                "Duration (min)": e.task.duration_minutes,
+                "Repeats": e.task.frequency.value,
+            }
+            for e in plan.entries
+        ])
+        st.success(
+            f"Scheduled {len(plan.entries)} task(s) — "
+            f"{plan.total_time_used()} / {st.session_state.owner.available_minutes} min used."
+        )
+    else:
+        st.info("No tasks could be scheduled.")
 
-        if plan.skipped_tasks:
-            st.markdown("**Skipped tasks:**")
-            for pet, task, reason in plan.skipped_tasks:
-                if reason == "deadline":
-                    msg = (
-                        f"**{task.title}** ({pet.name}) — skipped because it would "
-                        f"finish after its deadline ({fmt_time(task.due_time)})."
-                    )
-                else:
-                    msg = (
-                        f"**{task.title}** ({pet.name}) — skipped because "
-                        f"the time budget is full."
-                    )
-                st.warning(msg)
-
-        with st.expander("Why was this plan chosen?"):
-            st.text(plan.explain())
-
-        # ---------------------------------------------------------------
-        # Reliability layer — guardrails gate whether this plan can be saved
-        # ---------------------------------------------------------------
-        st.markdown("#### Plan Review")
-        findings = Evaluator(plan).run()
-        st.session_state.pending_plan = plan
-        st.session_state.pending_findings = findings
-
-        if not findings:
-            st.success("Evaluator: no issues found.")
-        for f in findings:
-            if f.severity == Severity.CRITICAL:
-                st.error(f"🚫 {f.message}")
-            elif f.severity == Severity.WARNING:
-                st.warning(("🩺 " if f.requires_human_review else "⚠️ ") + f.message)
+    if plan.skipped_tasks:
+        st.markdown("**Skipped tasks:**")
+        for pet, task, reason in plan.skipped_tasks:
+            if reason == "deadline":
+                msg = (
+                    f"**{task.title}** ({pet.name}) — skipped because it would "
+                    f"finish after its deadline ({fmt_time(task.due_time)})."
+                )
             else:
-                st.info(f.message)
+                msg = (
+                    f"**{task.title}** ({pet.name}) — skipped because "
+                    f"the time budget is full."
+                )
+            st.warning(msg)
 
-        needs_review = Evaluator.requires_human_review(findings)
-        blocked = not Evaluator.passed(findings)
+    with st.expander("Why was this plan chosen?"):
+        st.text(plan.explain())
 
-        if blocked:
-            st.error("This plan has a structural problem and cannot be saved until it's fixed.")
-        elif needs_review:
-            st.session_state.reviewed_risky_plan = st.checkbox(
-                "I've reviewed the flagged health/medication task(s) above and approve this plan.",
-                value=st.session_state.reviewed_risky_plan,
-            )
+    # -----------------------------------------------------------------
+    # Reliability layer — guardrails gate whether this plan can be saved
+    # -----------------------------------------------------------------
+    st.markdown("#### Plan Review")
+    findings = result.findings
+
+    if not findings:
+        st.success("Evaluator: no issues found.")
+    for f in findings:
+        if f.severity == Severity.CRITICAL:
+            st.error(f"🚫 {f.message}")
+        elif f.severity == Severity.WARNING:
+            st.warning(("🩺 " if f.requires_human_review else "⚠️ ") + f.message)
         else:
-            st.session_state.reviewed_risky_plan = True
+            st.info(f.message)
 
-        save_disabled = blocked or (needs_review and not st.session_state.reviewed_risky_plan)
-        if st.button("💾 Save Plan", disabled=save_disabled):
-            saved, _ = safe_save_plan(
-                st.session_state.owner, plan,
+    blocked = not Evaluator.passed(findings)
+
+    if blocked:
+        st.error("This plan has a structural problem the agent couldn't fix and cannot be saved.")
+    elif result.needs_human_review:
+        st.session_state.reviewed_risky_plan = st.checkbox(
+            "I've reviewed the flagged health/medication task(s) above and approve this plan.",
+            value=st.session_state.reviewed_risky_plan,
+        )
+    else:
+        st.session_state.reviewed_risky_plan = True
+
+    if result.saved:
+        st.success("Plan saved to data.json.")
+    elif not blocked:
+        save_disabled = result.needs_human_review and not st.session_state.reviewed_risky_plan
+        if st.button("💾 Re-run Agent & Save", disabled=save_disabled):
+            agent = PawPalAgent(st.session_state.owner, retriever=retriever, classifier=classifier)
+            st.session_state.agent_result = agent.run(
                 human_reviewed=st.session_state.reviewed_risky_plan,
+                save_path="data.json",
             )
-            if saved:
-                st.success("Plan saved to data.json.")
-                st.session_state.reviewed_risky_plan = False
-            else:
-                st.error("Save blocked by the evaluator — resolve the issues above first.")
+            st.session_state.reviewed_risky_plan = False
+            st.rerun()

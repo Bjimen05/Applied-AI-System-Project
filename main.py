@@ -6,10 +6,13 @@ sys.stdout.reconfigure(encoding="utf-8")
 from colorama import Fore, Style, init as colorama_init
 from tabulate import tabulate
 
+from datetime import date, timedelta
+
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority, Frequency
-from evaluator import Evaluator, Severity, safe_save_plan
+from evaluator import Severity
 from retriever import Retriever
 from specialized_model import TaskClassifier
+from agent import PawPalAgent
 
 retriever = Retriever()
 classifier = TaskClassifier(retriever=retriever)
@@ -192,11 +195,18 @@ biscuit_rows = [
 print(tabulate(biscuit_rows, headers=["Pet", "Task", "Priority", "Due"], tablefmt="simple_outline"))
 
 # ---------------------------------------------------------------------------
-# Daily schedule
+# Agentic workflow: orchestrates Scheduler + Retriever + TaskClassifier +
+# Evaluator into one decision loop instead of calling each by hand.
 # ---------------------------------------------------------------------------
 
-section("Today's Schedule")
-plan = scheduler.generate_plan()
+section("Agent: building today's plan")
+
+agent = PawPalAgent(alex, retriever=retriever, classifier=classifier)
+agent_result = agent.run(human_reviewed=False, save_path="data.json")
+plan = agent_result.plan
+
+for a in agent_result.actions_taken:
+    print(Fore.MAGENTA + f"  🤖 {a}" + Style.RESET_ALL)
 
 schedule_rows = []
 for e in plan.entries:
@@ -210,6 +220,7 @@ for e in plan.entries:
         f"{e.task.duration_minutes} min",
     ])
 
+print()
 print(tabulate(schedule_rows, headers=["Time Slot", "Pet", "Task", "Priority", "Duration"], tablefmt="rounded_outline"))
 print(Fore.CYAN + f"  Total: {plan.total_time_used()} / {alex.available_minutes} min used" + Style.RESET_ALL)
 
@@ -222,16 +233,8 @@ if plan.skipped_tasks:
     ]
     print(tabulate(skipped_rows, headers=["Pet", "Task", "Priority", "Skipped reason"], tablefmt="simple_outline"))
 
-# ---------------------------------------------------------------------------
-# Reliability layer: evaluator gates whether the plan is allowed to persist
-# ---------------------------------------------------------------------------
-
-section("Evaluator: guardrail checks on today's plan")
-
-findings = Evaluator(plan).run()
-if not findings:
-    print(Fore.GREEN + "  ✅ No issues found." + Style.RESET_ALL)
-for f in findings:
+print()
+for f in agent_result.findings:
     color = {
         Severity.CRITICAL: Fore.RED,
         Severity.WARNING: Fore.YELLOW,
@@ -239,38 +242,24 @@ for f in findings:
     }[f.severity]
     tag = "🩺 REVIEW" if f.requires_human_review else f.severity.value.upper()
     print(color + f"  [{tag}] {f.message}" + Style.RESET_ALL)
+if not agent_result.findings:
+    print(Fore.GREEN + "  ✅ Evaluator: no issues found." + Style.RESET_ALL)
 
-saved, _ = safe_save_plan(alex, plan, human_reviewed=False)
-if saved:
-    print(Fore.GREEN + "  Plan saved to data.json." + Style.RESET_ALL)
-else:
-    print(Fore.RED + "  Save BLOCKED by evaluator — plan not written to data.json." + Style.RESET_ALL)
+print(Fore.GREEN + "  Plan saved to data.json." + Style.RESET_ALL if agent_result.saved
+      else Fore.RED + "  Save BLOCKED — plan not written to data.json." + Style.RESET_ALL)
 
-# ---------------------------------------------------------------------------
-# RAG: retrieve care-guide passages for today's scheduled tasks
-# ---------------------------------------------------------------------------
+print()
+print(Fore.CYAN + "  Care tips (RAG):" + Style.RESET_ALL)
+for title, tip in agent_result.care_tips.items():
+    print(f"    {title}: {tip}")
 
-section("RAG: care tips for today's plan")
-
-for e in plan.entries:
-    hits = retriever.retrieve_for_task(e.task.title, e.task.description, e.pet.species, top_k=1)
-    if hits:
-        print(f"  {Fore.CYAN}{e.task.title}{Style.RESET_ALL} ({e.pet.name}): {hits[0].document.text}")
-
-# ---------------------------------------------------------------------------
-# Specialized model: structured urgency assessment for today's tasks
-# ---------------------------------------------------------------------------
-
-section("Specialized model: task urgency assessment")
-
-model_rows = []
-for pet, task in scheduler.collect_tasks():
-    assessment = classifier.classify(task, pet, alex.day_start)
-    model_rows.append([
-        f"{species_icon(pet.species)} {pet.name}", task.title,
-        assessment.urgency_tier.value.upper(), f"{assessment.urgency_score:.0f}/100",
-    ])
-print(tabulate(model_rows, headers=["Pet", "Task", "Urgency Tier", "Score"], tablefmt="simple_outline"))
+print()
+model_rows = [
+    [title, a.urgency_tier.value.upper(), f"{a.urgency_score:.0f}/100"]
+    for title, a in agent_result.assessments.items()
+]
+print(Fore.CYAN + "  Model urgency assessment:" + Style.RESET_ALL)
+print(tabulate(model_rows, headers=["Task", "Urgency Tier", "Score"], tablefmt="simple_outline"))
 
 # ---------------------------------------------------------------------------
 # Recurrence demo
@@ -342,23 +331,47 @@ else:
     print(Fore.GREEN + "  ✅ No conflicts detected." + Style.RESET_ALL)
 
 # ---------------------------------------------------------------------------
-# Evaluator on a health-related plan — demonstrates the human-review gate
+# Agent on a health-related plan — demonstrates the human-review gate
 # ---------------------------------------------------------------------------
 
-section("Evaluator: 'Vet Check' requires human sign-off before saving")
-
-sam_plan = conflict_scheduler.generate_plan()
-sam_findings = Evaluator(sam_plan).run()
-for f in sam_findings:
-    tag = "🩺 REVIEW" if f.requires_human_review else f.severity.value.upper()
-    print(Fore.YELLOW + f"  [{tag}] {f.message}" + Style.RESET_ALL)
+section("Agent: 'Vet Check' requires human sign-off before saving")
 
 demo_path = Path(tempfile.gettempdir()) / "pawpal_demo_sam.json"
+sam_agent = PawPalAgent(sam, retriever=retriever, classifier=classifier)
 
-saved, _ = safe_save_plan(sam, sam_plan, path=demo_path, human_reviewed=False)
-print(Fore.RED + "  Save BLOCKED (not yet reviewed)." + Style.RESET_ALL if not saved
+unreviewed = sam_agent.run(human_reviewed=False, save_path=demo_path)
+for f in unreviewed.findings:
+    tag = "🩺 REVIEW" if f.requires_human_review else f.severity.value.upper()
+    print(Fore.YELLOW + f"  [{tag}] {f.message}" + Style.RESET_ALL)
+print(Fore.RED + "  Save BLOCKED (not yet reviewed)." + Style.RESET_ALL if not unreviewed.saved
       else Fore.GREEN + "  Saved." + Style.RESET_ALL)
 
-saved, _ = safe_save_plan(sam, sam_plan, path=demo_path, human_reviewed=True)
-print(Fore.GREEN + "  Saved after human review." + Style.RESET_ALL if saved
+reviewed = sam_agent.run(human_reviewed=True, save_path=demo_path)
+print(Fore.GREEN + "  Saved after human review." + Style.RESET_ALL if reviewed.saved
       else Fore.RED + "  Still blocked." + Style.RESET_ALL)
+
+# ---------------------------------------------------------------------------
+# Agent repair loop — a MEDIUM, overdue task outranks a HIGH task with no
+# time pressure, so the agent promotes it and re-plans, changing which task
+# actually gets scheduled.
+# ---------------------------------------------------------------------------
+
+section("Agent: repairing a priority mismatch")
+
+priya = Owner(name="Priya", available_minutes=15, day_start=480)
+max_dog = Pet(name="Max", species="dog", breed="Mixed", age=4)
+priya.add_pet(max_dog)
+
+walk = Task("Walk", "Evening walk", 15, Priority.HIGH, due_time=700)
+overdue_groom = Task("Grooming", "Brush and nail trim", 15, Priority.MEDIUM, due_time=650)
+overdue_groom.due_date = date.today() - timedelta(days=1)
+max_dog.add_task(walk)
+max_dog.add_task(overdue_groom)
+
+repair_agent = PawPalAgent(priya, retriever=retriever, classifier=classifier)
+repair_result = repair_agent.run(human_reviewed=True, save_path=Path(tempfile.gettempdir()) / "pawpal_demo_priya.json")
+
+for a in repair_result.actions_taken:
+    print(Fore.MAGENTA + f"  🤖 {a}" + Style.RESET_ALL)
+print(Fore.CYAN + f"  Scheduled: {[e.task.title for e in repair_result.plan.entries]}" + Style.RESET_ALL)
+print(Fore.CYAN + f"  'Grooming' priority is now: {overdue_groom.priority.name}" + Style.RESET_ALL)
