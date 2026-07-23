@@ -121,15 +121,16 @@ All output below is real, copy-pasted from actually running these commands again
 ──── Agent: building today's plan ──────────────────────
   🤖 Generated a candidate plan with the Scheduler.
   🤖 Saved the plan.
+```
 
-╭───────────────┬────────────┬──────────────┬────────────┬────────────╮
-│ Time Slot     │ Pet        │ Task         │ Priority   │ Duration   │
-├───────────────┼────────────┼──────────────┼────────────┼────────────┤
-│ 08:00 – 08:10 │ 🐕 Biscuit  │ Feeding      │ 🔴 HIGH     │ 10 min     │
-│ 08:10 – 08:40 │ 🐕 Biscuit  │ Morning Walk │ 🔴 HIGH     │ 30 min     │
-│ 08:40 – 08:55 │ 🐈 Whiskers │ Grooming     │ 🟡 MED      │ 15 min     │
-│ 08:55 – 09:15 │ 🐇 Pebble   │ Enrichment   │ 🟢 LOW      │ 20 min     │
-╰───────────────┴────────────┴──────────────┴────────────┴────────────╯
+| Time Slot | Pet | Task | Priority | Duration |
+|---|---|---|---|---|
+| 08:00 – 08:10 | 🐕 Biscuit | Feeding | 🔴 HIGH | 10 min |
+| 08:10 – 08:40 | 🐕 Biscuit | Morning Walk | 🔴 HIGH | 30 min |
+| 08:40 – 08:55 | 🐈 Whiskers | Grooming | 🟡 MED | 15 min |
+| 08:55 – 09:15 | 🐇 Pebble | Enrichment | 🟢 LOW | 20 min |
+
+```
   Total: 75 / 120 min used
 
   ✅ Evaluator: no issues found.
@@ -140,17 +141,16 @@ All output below is real, copy-pasted from actually running these commands again
     Feeding: Beagles are a breed especially prone to overeating and obesity, so measured portions matter more for them than free-feeding kibble.
     Grooming: Long-haired cats need daily brushing to prevent mats and hairballs; short-haired cats can be brushed weekly.
     Enrichment: Rabbits are prey animals that need daily free-roam or exercise time and enrichment like tunnels and chew toys to stay mentally healthy.
-
-  Model urgency assessment:
-┌──────────────┬────────────────┬─────────┐
-│ Task         │ Urgency Tier   │ Score   │
-├──────────────┼────────────────┼─────────┤
-│ Morning Walk │ CRITICAL       │ 95/100  │
-│ Feeding      │ CRITICAL       │ 98/100  │
-│ Grooming     │ SOON           │ 62/100  │
-│ Enrichment   │ ROUTINE        │ 35/100  │
-└──────────────┴────────────────┴─────────┘
 ```
+
+**Model urgency assessment:**
+
+| Task | Urgency Tier | Score |
+|---|---|---|
+| Morning Walk | CRITICAL | 95/100 |
+| Feeding | CRITICAL | 98/100 |
+| Grooming | SOON | 62/100 |
+| Enrichment | ROUTINE | 35/100 |
 
 **What this demonstrates:** the full pipeline running end-to-end — Scheduler → Evaluator → RAG → specialized model — on one command, with no errors and a plan actually written to `data.json`.
 
