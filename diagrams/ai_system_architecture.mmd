@@ -1,61 +1,60 @@
 flowchart TB
     User(["👤 Pet Owner"])
+    Output(["📋 Plan + Explanation"])
 
-    User -->|"1: request (e.g. 'plan my day', 'why this order?', new task)"| Agent
+    User -->|"add tasks / Run Agent"| Agent
+    Output -->|"shown to user"| User
+    User -.->|"mark complete / re-run"| Agent
 
-    subgraph AGENTIC["🤖 Agentic Workflow (orchestrator)"]
-        Agent["Agent Orchestrator<br/>plans steps, calls tools, decides next action"]
+    subgraph AGENTIC["🤖 Agentic Workflow"]
+        Agent["PawPalAgent<br/>generate → evaluate → repair → save"]
+    end
+
+    subgraph CORE["⚙️ Core (deterministic)"]
+        Scheduler["Scheduler"]
+    end
+
+    subgraph RELSUB["🛡️ Reliability"]
+        Evaluator["Evaluator<br/>integrity · budget · risk · priority-mismatch"]
+        TestSuite[["pytest, 67 tests<br/>(manual, no CI)"]]
     end
 
     subgraph RAGSUB["📚 RAG"]
-        Retriever["Retriever"]
-        KB[("Knowledge Base / Vector Store<br/>pet-care guides, species/breed facts, vet-advice docs")]
-        Retriever <--> KB
+        Retriever["Retriever<br/>(Jaccard keyword match, offline)"]
+        KB[("18-doc knowledge base")]
+        Retriever --- KB
     end
 
     subgraph MODELSUB["🎯 Specialized Model"]
-        SpecModel["Fine-tuned / Structured-Prompt Model<br/>task classification, urgency scoring, plain-English explanations"]
+        SpecModel["TaskClassifier<br/>(structured urgency scoring)"]
     end
 
-    subgraph CORE["⚙️ Existing PawPal+ Core (deterministic)"]
-        Scheduler["Scheduler<br/>generate_plan, detect_conflicts, sort_by_time"]
-        Data[("data.json<br/>Owner / Pet / Task store")]
-        Scheduler <--> Data
-    end
+    Agent <-->|"plan"| Scheduler
+    Agent <-->|"findings"| Evaluator
+    Evaluator --> Retriever
+    Evaluator --> SpecModel
 
-    Agent -->|"2a: retrieve care knowledge"| Retriever
-    Retriever -->|"context passages"| Agent
+    Agent -->|"CRITICAL → stop, unsaved"| Stop(["🚫 Stop"])
+    Agent -->|"WARNING mismatch →<br/>promote priority, re-plan"| Scheduler
 
-    Agent -->|"2b: classify / explain"| SpecModel
-    SpecModel -->|"structured output"| Agent
+    Agent --> SaveGate{"safe to save?"}
+    SaveGate -->|"blocked"| Blocked(["🚫 Blocked"])
+    SaveGate -->|"needs review"| HumanReview[["🧑 Human approval"]]
+    SaveGate -->|"ok"| Data[("data.json")]
+    HumanReview -->|"approved → re-run"| Agent
+    Data -.->|"loaded at startup"| Agent
 
-    Agent -->|"2c: build/update schedule"| Scheduler
-    Scheduler -->|"candidate plan + skip reasons"| Agent
+    Agent --> Output
 
-    Agent -->|"3: draft result"| Evaluator
-
-    subgraph RELSUB["🛡️ Reliability & Testing"]
-        Evaluator["Evaluator / Guardrails<br/>checks: schedule feasible? citations grounded? no hallucinated tasks?"]
-        SelfCheck{"Self-check loop<br/>confidence / consistency OK?"}
-        TestSuite[["Automated Test Suite (pytest)<br/>regression checks on Scheduler + prompts"]]
-
-        Evaluator --> SelfCheck
-        SelfCheck -->|"fail: retry with feedback"| Agent
-        TestSuite -.->|"CI gate before deploy"| Scheduler
-        TestSuite -.->|"CI gate before deploy"| SpecModel
-    end
-
-    SelfCheck -->|"pass"| Output(["📋 Daily Plan + Explanation"])
-    SelfCheck -->|"low confidence / high-risk change<br/>(e.g. medication task)"| HumanReview[["🧑‍⚕️ Human-in-the-loop Review<br/>(owner approves/edits before it's final)"]]
-
-    HumanReview -->|"correction or approval"| Agent
-    HumanReview -->|"approved"| Output
-
-    Output -->|"4: shown to user"| User
-    User -.->|"feedback: mark complete, edit, reject"| Agent
+    TestSuite -.-> Scheduler
+    TestSuite -.-> Evaluator
+    TestSuite -.-> Retriever
+    TestSuite -.-> SpecModel
+    TestSuite -.-> Agent
 
     style User fill:#e8f0fe,stroke:#4285f4
     style Output fill:#e6f4ea,stroke:#34a853
     style HumanReview fill:#fef7e0,stroke:#f9ab00
     style Evaluator fill:#fce8e6,stroke:#ea4335
-    style SelfCheck fill:#fce8e6,stroke:#ea4335
+    style Blocked fill:#fce8e6,stroke:#ea4335
+    style Stop fill:#fce8e6,stroke:#ea4335

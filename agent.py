@@ -16,12 +16,15 @@ leaving the plan unsaved.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from pawpal_system import DailyPlan, Owner, Priority, Scheduler
 from evaluator import Evaluator, Finding, safe_save_plan
 from retriever import Retriever
 from specialized_model import TaskAssessment, TaskClassifier, UrgencyTier
+
+logger = logging.getLogger(__name__)
 
 MAX_REPAIR_ATTEMPTS = 2
 
@@ -51,6 +54,7 @@ class PawPalAgent:
 
     def run(self, *, human_reviewed: bool = False, save_path: str = "data.json") -> AgentResult:
         actions: list[str] = []
+        logger.info("Agent run started for owner '%s'.", self.owner.name)
         scheduler = Scheduler(self.owner)
         plan = scheduler.generate_plan()
         actions.append("Generated a candidate plan with the Scheduler.")
@@ -58,6 +62,10 @@ class PawPalAgent:
 
         for attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
             if not Evaluator.passed(findings):
+                logger.error(
+                    "Agent stopping for '%s': CRITICAL finding with no automatic repair (attempt %d).",
+                    self.owner.name, attempt,
+                )
                 actions.append(
                     f"Attempt {attempt}: a CRITICAL issue was found and the agent has no "
                     f"automatic repair for it; stopping without saving."
@@ -68,6 +76,10 @@ class PawPalAgent:
             if not promoted:
                 break
 
+            logger.info(
+                "Agent repair attempt %d for '%s': promoted %s to HIGH priority.",
+                attempt, self.owner.name, promoted,
+            )
             actions.append(
                 f"Attempt {attempt}: the model rated {', '.join(promoted)} as more urgent than "
                 f"what got scheduled, so the agent promoted it to HIGH priority and re-planned."
@@ -90,6 +102,7 @@ class PawPalAgent:
         else:
             actions.append("Plan still has a CRITICAL issue after repair attempts — not saved.")
 
+        logger.info("Agent run finished for '%s': saved=%s, findings=%d.", self.owner.name, saved, len(findings))
         return AgentResult(
             plan=plan, findings=findings, actions_taken=actions, saved=saved,
             needs_human_review=Evaluator.requires_human_review(findings),

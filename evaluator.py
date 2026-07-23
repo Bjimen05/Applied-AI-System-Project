@@ -9,6 +9,7 @@ reviewed by a human.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
@@ -17,6 +18,8 @@ from pathlib import Path
 from pawpal_system import DailyPlan, Owner, Priority, SKIP_DEADLINE, save_to_json
 from retriever import RISK_CATEGORIES, Retriever
 from specialized_model import TaskClassifier, UrgencyTier
+
+logger = logging.getLogger(__name__)
 
 HIGH_RISK_KEYWORDS = {
     "med", "meds", "medication", "medicine", "insulin", "dosage", "dose",
@@ -74,6 +77,13 @@ class Evaluator:
         findings.extend(self._check_high_risk())
         findings.extend(self._check_overdue())
         findings.extend(self._check_model_priority_mismatch())
+
+        for f in findings:
+            log_level = logging.ERROR if f.severity == Severity.CRITICAL else logging.WARNING
+            logger.log(log_level, "[%s] %s: %s", f.severity.value.upper(), f.code, f.message)
+        if not findings:
+            logger.info("Evaluator: plan for '%s' passed with no findings.", self.plan.owner.name)
+
         return findings
 
     def _check_integrity(self) -> list[Finding]:
@@ -244,10 +254,13 @@ def safe_save_plan(
     findings = Evaluator(plan).run()
 
     if not Evaluator.passed(findings):
+        logger.error("Save BLOCKED for '%s': CRITICAL finding present.", owner.name)
         return False, findings
 
     if Evaluator.requires_human_review(findings) and not human_reviewed:
+        logger.warning("Save BLOCKED for '%s': pending human review.", owner.name)
         return False, findings
 
     save_to_json(owner, path)
+    logger.info("Saved plan for '%s' to %s.", owner.name, path)
     return True, findings

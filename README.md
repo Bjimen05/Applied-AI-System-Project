@@ -1,373 +1,162 @@
-# PawPal+ (Module 2 Project)
+# PawPal+ — AI-Augmented Pet Care Planner
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+## Title and Summary
 
-## Scenario
+**PawPal+** started as a Module 2 course project: a Streamlit app that helps a pet owner plan daily care tasks (walks, feeding, meds, grooming) around a time budget, using a deterministic scheduler that weighs priority, deadlines, and conflicts, and explains its reasoning in plain English.
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+This build extends that deterministic core with four AI capabilities — retrieval-augmented guidance, a structured urgency-classification model, a reliability/guardrail layer, and an agent that orchestrates all three — so the system doesn't just generate a schedule, it grounds it in pet-care knowledge, flags risky tasks for a human before saving, and can autonomously correct scheduling decisions it disagrees with.
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+It matters as a portfolio piece because it shows AI features wired into a *working* system with real behavior change (a task can get bumped ahead of another; a save can get blocked) — not bolted-on demos that run once and print to a console.
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+## Architecture Overview
 
-## What you will build
+```mermaid
+flowchart TB
+    User(["👤 Pet Owner"])
+    Output(["📋 Plan + Explanation"])
 
-Your final app should:
+    User -->|"add tasks / Run Agent"| Agent
+    Output -->|"shown to user"| User
+    User -.->|"mark complete / re-run"| Agent
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+    subgraph AGENTIC["🤖 Agentic Workflow"]
+        Agent["PawPalAgent<br/>generate → evaluate → repair → save"]
+    end
 
-## Getting started
+    subgraph CORE["⚙️ Core (deterministic)"]
+        Scheduler["Scheduler"]
+    end
 
-### Setup
+    subgraph RELSUB["🛡️ Reliability"]
+        Evaluator["Evaluator<br/>integrity · budget · risk · priority-mismatch"]
+        TestSuite[["pytest, 67 tests<br/>(manual, no CI)"]]
+    end
+
+    subgraph RAGSUB["📚 RAG"]
+        Retriever["Retriever<br/>(Jaccard keyword match, offline)"]
+        KB[("18-doc knowledge base")]
+        Retriever --- KB
+    end
+
+    subgraph MODELSUB["🎯 Specialized Model"]
+        SpecModel["TaskClassifier<br/>(structured urgency scoring)"]
+    end
+
+    Agent <-->|"plan"| Scheduler
+    Agent <-->|"findings"| Evaluator
+    Evaluator --> Retriever
+    Evaluator --> SpecModel
+
+    Agent -->|"CRITICAL → stop, unsaved"| Stop(["🚫 Stop"])
+    Agent -->|"WARNING mismatch →<br/>promote priority, re-plan"| Scheduler
+
+    Agent --> SaveGate{"safe to save?"}
+    SaveGate -->|"blocked"| Blocked(["🚫 Blocked"])
+    SaveGate -->|"needs review"| HumanReview[["🧑 Human approval"]]
+    SaveGate -->|"ok"| Data[("data.json")]
+    HumanReview -->|"approved → re-run"| Agent
+    Data -.->|"loaded at startup"| Agent
+
+    Agent --> Output
+
+    TestSuite -.-> Scheduler
+    TestSuite -.-> Evaluator
+    TestSuite -.-> Retriever
+    TestSuite -.-> SpecModel
+    TestSuite -.-> Agent
+
+    style User fill:#e8f0fe,stroke:#4285f4
+    style Output fill:#e6f4ea,stroke:#34a853
+    style HumanReview fill:#fef7e0,stroke:#f9ab00
+    style Evaluator fill:#fce8e6,stroke:#ea4335
+    style Blocked fill:#fce8e6,stroke:#ea4335
+    style Stop fill:#fce8e6,stroke:#ea4335
+```
+
+The **Agent** (`agent.py`) is the orchestrator: it asks the **Scheduler** for a candidate plan, hands it to the **Evaluator** for review, and reacts to what comes back. The Evaluator itself calls the **Retriever** (RAG, an 18-document offline knowledge base scored by keyword/Jaccard overlap — no embeddings, no API) to ground high-risk task detection, and the **TaskClassifier** (the specialized model — a structured-prompting-style scorer, not a hosted LLM) to catch priority mismatches the raw `Priority` enum can't see. A `CRITICAL` finding halts the agent with nothing saved; a `model_priority_mismatch` warning triggers a bounded repair loop where the agent promotes the task's priority and re-plans. The final save always passes through the same guardrail gate, which requires explicit human approval for anything flagged high-risk. A `pytest` suite (67 tests, run manually — no CI is configured) covers every layer. Full diagram: [`diagrams/ai_system_architecture.mmd`](diagrams/ai_system_architecture.mmd).
+
+## Setup Instructions
 
 ```bash
+git clone https://github.com/Bjimen05/Applied-AI-System-Project.git
+cd Applied-AI-System-Project/applied-ai-system-final
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Suggested workflow
-
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
-
-## 🖥️ Sample Output
-
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
-
-```
-Daily Plan for Alex — 2026-06-26
-──────────────────────────────────────────────────
-  08:00 – 08:10  Biscuit      Feeding (10 min) [HIGH]
-  08:10 – 08:40  Biscuit      Morning Walk (30 min) [HIGH]
-  08:40 – 08:45  Whiskers     Litter Box (5 min) [MEDIUM]
-  08:45 – 09:05  Pebble       Enrichment (20 min) [LOW]
-──────────────────────────────────────────────────
-  Total: 65 / 120 min used
-```
-
-## 🧪 Testing PawPal+
-
-Run the full test suite from the project root:
-
+Run the CLI demo (no API key needed — everything is offline):
 ```bash
-python -m pytest tests/test_pawpal.py -v
+python main.py
 ```
 
-The tests cover:
-
-- **Recurring tasks** — DAILY advances one day, WEEKLY advances seven days, ONCE produces no clone, and the new task is always reset to `completed=False`
-- **Sorting** — `sort_by_time` orders tasks by `due_time` ascending, handles empty lists and single-item lists
-- **Conflict detection** — overlapping ideal windows are flagged, non-overlapping and completed tasks are ignored
-- **Scheduling / `generate_plan`** — tasks are skipped with the correct reason (`"deadline"` or `"budget"`), boundary conditions (duration exactly equals budget or due time) are handled correctly, and priority + urgency ordering is enforced
-- **Filtering** — `filter_tasks` handles pending/completed status, case-insensitive pet name matching, combined filters, and unknown names
-
-```
-============================= test session starts =============================
-platform win32 -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
-cachedir: .pytest_cache
-rootdir: C:\Users\Brandon\Documents\GitHub\ai110-module2show-pawpal-starter
-plugins: anyio-4.13.0
-collecting ... collected 31 items
-
-tests/test_pawpal.py::test_mark_complete_changes_status PASSED           [  3%]
-tests/test_pawpal.py::test_add_task_increases_pet_task_count PASSED      [  6%]
-tests/test_pawpal.py::test_daily_recurrence_advances_one_day PASSED      [  9%]
-tests/test_pawpal.py::test_weekly_recurrence_advances_seven_days PASSED  [ 12%]
-tests/test_pawpal.py::test_once_task_returns_none_and_adds_no_new_task PASSED [ 16%]
-tests/test_pawpal.py::test_recurring_clone_is_not_completed PASSED       [ 19%]
-tests/test_pawpal.py::test_original_task_marked_complete_after_recurrence PASSED [ 22%]
-tests/test_pawpal.py::test_recurring_clone_added_to_pet_task_list PASSED [ 25%]
-tests/test_pawpal.py::test_sort_by_time_orders_ascending PASSED          [ 29%]
-tests/test_pawpal.py::test_sort_by_time_empty_list PASSED                [ 32%]
-tests/test_pawpal.py::test_sort_by_time_single_task_unchanged PASSED     [ 35%]
-tests/test_pawpal.py::test_overlapping_windows_detected PASSED           [ 38%]
-tests/test_pawpal.py::test_non_overlapping_windows_no_conflict PASSED    [ 41%]
-tests/test_pawpal.py::test_single_task_no_conflict PASSED                [ 45%]
-tests/test_pawpal.py::test_empty_task_list_no_conflict PASSED            [ 48%]
-tests/test_pawpal.py::test_completed_tasks_excluded_from_conflict_check PASSED [ 51%]
-tests/test_pawpal.py::test_task_skipped_when_it_misses_deadline PASSED   [ 54%]
-tests/test_pawpal.py::test_task_skipped_when_budget_exhausted PASSED     [ 58%]
-tests/test_pawpal.py::test_task_fits_when_duration_equals_remaining_budget PASSED [ 61%]
-tests/test_pawpal.py::test_task_fits_when_finish_equals_due_time PASSED  [ 64%]
-tests/test_pawpal.py::test_zero_budget_skips_all_tasks PASSED            [ 67%]
-tests/test_pawpal.py::test_no_pets_produces_empty_plan PASSED            [ 70%]
-tests/test_pawpal.py::test_high_priority_scheduled_before_low_priority PASSED [ 74%]
-tests/test_pawpal.py::test_urgent_low_priority_boosted_over_non_urgent_medium PASSED [ 77%]
-tests/test_pawpal.py::test_filter_pending_excludes_completed PASSED      [ 80%]
-tests/test_pawpal.py::test_filter_completed_excludes_pending PASSED      [ 83%]
-tests/test_pawpal.py::test_filter_by_pet_name_case_insensitive PASSED    [ 87%]
-tests/test_pawpal.py::test_filter_combined_status_and_pet_name PASSED    [ 90%]
-tests/test_pawpal.py::test_filter_unknown_pet_name_returns_empty PASSED  [ 93%]
-tests/test_pawpal.py::test_total_time_used_sums_scheduled_durations PASSED [ 96%]
-tests/test_pawpal.py::test_total_time_used_empty_plan PASSED             [100%]
-
-============================= 31 passed in 0.03s ==============================
-
-My confidence level is 5 stars based on my test results
+Run the Streamlit app:
+```bash
+streamlit run app.py
 ```
 
-## 💾 Persistence
-
-PawPal+ saves the owner, their pets, and all tasks to a human-readable `data.json` file so the schedule survives between runs.
-
-### Files modified
-
-| File | Change |
-|---|---|
-| `pawpal_system.py` | Added `TaskSchema`, `PetSchema`, `OwnerSchema` (marshmallow) and `save_to_json` / `load_from_json` module-level functions |
-| `requirements.txt` | Added `marshmallow>=3.18` |
-
-### How it works
-
-Three nested marshmallow schemas mirror the class hierarchy:
-
-```
-OwnerSchema
-  └── PetSchema  (list)
-        └── TaskSchema  (list)
+Run the test suite:
+```bash
+python -m pytest tests/ -v
 ```
 
-- **`TaskSchema`** uses `mf.Enum` fields so `Priority` serializes as `"HIGH"` / `"MEDIUM"` / `"LOW"` and `Frequency` serializes as `"once"` / `"daily"` / `"weekly"` — both human-readable and round-trippable without any manual string conversion.
-- **`@post_load`** on each schema reconstructs the Python object from the deserialized dict, so `load_from_json` returns a fully typed `Owner` instance ready to pass straight to `Scheduler`.
+## Sample Interactions
 
-### Usage
-
-```python
-from pawpal_system import save_to_json, load_from_json
-
-# Save after any state change
-save_to_json(owner)               # writes data.json in the current directory
-save_to_json(owner, "saves/alex.json")  # or a custom path
-
-# Load at startup
-try:
-    owner = load_from_json()
-except FileNotFoundError:
-    owner = Owner(...)            # first run — no save file yet
+**1. Clean plan — evaluator passes, agent auto-saves**
+```
+🤖 Generated a candidate plan with the Scheduler.
+🤖 Saved the plan.
+08:00 – 08:10  Biscuit  Feeding       [HIGH]
+08:10 – 08:40  Biscuit  Morning Walk  [HIGH]
+✅ Evaluator: no issues found.
+Plan saved to data.json.
 ```
 
-### Example `data.json`
-
-```json
-{
-  "name": "Jordan",
-  "available_minutes": 120,
-  "day_start": 480,
-  "pets": [
-    {
-      "name": "Mochi",
-      "species": "dog",
-      "breed": "Mixed",
-      "age": 2,
-      "tasks": [
-        {
-          "title": "Morning walk",
-          "description": "",
-          "duration_minutes": 30,
-          "priority": "HIGH",
-          "due_time": 540,
-          "completed": false,
-          "frequency": "daily",
-          "due_date": "2026-06-28"
-        }
-      ]
-    }
-  ]
-}
+**2. Health-related task — blocked until a human signs off**
+```
+[🩺 REVIEW] 'Vet Check' (Buddy) looks health/medication-related and needs
+owner sign-off before the plan is saved. Care-guide match: "Annual wellness
+exams help catch issues early..."
+Save BLOCKED (not yet reviewed).
+Saved after human review.
 ```
 
-## 📐 Smarter Scheduling
+**3. Agent repairs a priority mismatch — schedule outcome actually changes**
+```
+🤖 Attempt 1: the model rated Grooming as more urgent than what got scheduled,
+   so the agent promoted it to HIGH priority and re-planned.
+Scheduled: ['Grooming']          # was ['Walk'] before the repair
+'Grooming' priority is now: HIGH
+```
 
-| Feature | Method(s) | Notes |
-|---------|-----------|-------|
-| Priority + urgency sort | `Scheduler._sort_tasks` | Sorts by priority (HIGH=1, LOW=3), then deadline, then duration. Tasks due within 60 min of `day_start` get their priority rank boosted by one tier automatically. |
+## Design Decisions
 
-| Chronological sort | `Scheduler.sort_by_time` | Returns tasks sorted by `due_time` (minutes since midnight) ascending — useful for display and inspection. |
+- **Fully offline, no LLM API key.** Every "AI" component (retrieval, classification, agent decisions) is deterministic Python — a conscious trade-off for a coursework repo: reproducible, free to run, and testable with plain `pytest` instead of mocking an API. The cost is that the RAG and "model" are much simpler than an LLM-backed version would be.
+- **The Evaluator is the single gate for persistence.** `safe_save_plan()` is the only sanctioned way to write `data.json`. Every other component (Agent, UI, CLI) goes through it, so the reliability guarantee can't be silently bypassed by a new caller.
+- **The Agent doesn't duplicate the Scheduler's logic.** It only mutates a task's `Priority` and re-calls the existing, already-tested `generate_plan()` — repair is a re-planning trigger, not a second scheduling algorithm competing with the first.
+- **Structured output over free text.** The classifier always returns the same `TaskAssessment` shape (tier, score, rationale) instead of a loose string — the offline equivalent of forcing an LLM to return JSON, and easy to unit test.
 
-| Status / pet filter | `Scheduler.filter_tasks` | Filters a task list by `completed` status, `pet_name`, or both combined. Keyword-only args prevent accidental positional misuse. |
+## Testing Summary
 
-| Deadline feasibility | `Scheduler.generate_plan` | Before placing a task, checks that `clock + duration <= due_time`. Tasks that would finish after their deadline are skipped with reason `"deadline"` instead of `"budget"`. |
+**Automated tests:** 67 `pytest` tests across `pawpal_system`, `evaluator`, `retriever`, `specialized_model`, `agent`, and logging behavior — all passing. Keeping the original Scheduler untouched meant the 31 original tests never had to change while four new layers were added around it.
 
-| Conflict detection | `Scheduler.detect_conflicts` | Computes each task's ideal window `[due_time - duration, due_time]` and checks all pairs for overlap. Returns a warning string per conflicting pair; returns an empty list when the schedule is clean. |
+**Logging:** `evaluator.py` and `agent.py` use Python's `logging` module (not just `print`) to record every finding (CRITICAL → error, WARNING → info/warning), every save decision (blocked/allowed and why), and every agent repair action, written to `pawpal.log`. Four tests assert on captured log records (via `caplog`) rather than just checking return values, so a regression that silently stops logging a CRITICAL finding would fail CI-style, not just look fine in the console.
 
-| Recurring tasks | `Scheduler.mark_task_complete` | Marks a task done and, if `frequency` is `DAILY` or `WEEKLY`, uses `timedelta(days=1)` or `timedelta(days=7)` to create a new instance with the next `due_date` automatically added to the pet. `Frequency.ONCE` tasks are not repeated. |
+**Human evaluation** (manual review of real runs against stated criteria):
 
-| Collect all tasks | `Scheduler.collect_all_tasks` | Returns every task across all pets regardless of completion status — needed to use `filter_tasks` across both pending and done tasks. |
-
-## 🎨 CLI Formatting
-
-`main.py` uses two libraries to make terminal output structured and readable at a glance.
-
-### Libraries used
-
-| Library | Version | Purpose |
+| Test Input | Evaluation Criteria | Result |
 |---|---|---|
-| `tabulate` | ≥ 0.9 | Renders Python lists as bordered ASCII/Unicode tables with selectable styles |
-| `colorama` | ≥ 0.4 | Cross-platform ANSI color codes — wraps stdout so colors work on Windows without extra setup |
+| Generate schedule for Alex (4 tasks, no risky items) | Auto-saves with no human input needed | Pass |
+| Add a "Vet Check" task (health keyword) | Blocked until reviewed; saves after approval | Pass |
+| Overdue MEDIUM task vs. scheduled HIGH task, tight budget | Agent promotes the overdue task and reschedules it ahead | Pass |
+| Manually constructed plan that exceeds the time budget | Evaluator flags CRITICAL; save blocked | Pass |
+| Retrieval query using a plural the KB didn't have ("walks" vs. "walk") | Returns a relevant care tip | **Fail** — retriever returned nothing (exact-token match only) |
+| Same query after adding stemming + curated keyword tags | Returns a relevant care tip | Pass (re-tested) |
 
-`sys.stdout.reconfigure(encoding="utf-8")` is called before either library initializes so emoji and Unicode box-drawing characters render correctly on Windows (which defaults to cp1252).
+5 of 6 manual checks passed on the first run; the retriever failed on plural/tense mismatches until stemming and per-document keyword tags were added, then re-verified via CLI output showing every scheduled task getting a care tip. The main lesson: a rule-based "AI" layer is only as good as its test coverage of the *edge* cases (empty queries, no keyword match, tie-breaking priorities) — the happy path passed on the first try every time; the token-matching gap only showed up once real task text was tried instead of hand-picked test strings.
 
-### Formatting features
+## Reflection
 
-**Emoji species icons** — `species_icon(species)` maps each pet's species string to an emoji prefix on the Pet column:
+Building this made the seams between "deterministic system" and "AI layer" much clearer to me — the hardest design problem wasn't writing the retriever or classifier, it was deciding *where* each one plugs into an already-working system without becoming an unverifiable black box next to it. Chaining Evaluator → Retriever/Model → Agent forced me to think about failure modes (what if RAG finds nothing? what if the model disagrees with itself two attempts in a row?) before writing code, which is a habit I hadn't needed with the original rule-based scheduler.
 
-| Species | Icon |
-|---|---|
-| dog | 🐕 |
-| cat | 🐈 |
-| rabbit | 🐇 |
-| other | 🐾 |
-
-**Color-coded priority labels** — `priority_label(priority)` returns a colorama-styled string combining an emoji dot and the priority name:
-
-| Priority | Color | Label |
-|---|---|---|
-| HIGH | Red | 🔴 HIGH |
-| MEDIUM | Yellow | 🟡 MED |
-| LOW | Green | 🟢 LOW |
-
-**Status indicators** — `status_label(completed)` returns a colorama-styled status badge:
-
-| State | Color | Badge |
-|---|---|---|
-| Pending | Yellow | ⏳ pending |
-| Done | Green | ✅ done |
-
-**Frequency badges** — `FREQ_EMOJI` dict maps each `Frequency` enum to a fixed-width emoji label (`1️⃣  once`, `🔁 daily`, `📅 weekly`) so the Repeats column stays aligned.
-
-**Table styles** — `tabulate` is called with two styles depending on context:
-- `"rounded_outline"` — full bordered table with rounded corners for primary views (task list, schedule, conflict windows)
-- `"simple_outline"` — lighter bordered table for filter result views
-- `"simple"` — headerless minimal style for inline per-pet recurrence snapshots
-
-**Section headers** — the `section(title)` helper prints a cyan `─── Title ──────` divider line using `colorama.Fore.CYAN + Style.BRIGHT` to visually separate output blocks without adding blank noise.
-
-**Conflict warnings** — conflict strings from `detect_conflicts` are printed with `Fore.RED + Style.BRIGHT + "⚠️  "` prefix so they stand out immediately.
-
-### Functions added to `main.py`
-
-| Function | Description |
-|---|---|
-| `species_icon(species)` | Returns emoji for a pet's species string |
-| `priority_label(priority)` | Returns colorama-styled priority string |
-| `status_label(completed)` | Returns colorama-styled ✅/⏳ badge |
-| `task_rows(pairs)` | Builds a list of display rows from `(Pet, Task)` pairs for use with `tabulate` |
-| `show_pet_tasks(pet)` | Prints a `tabulate` table of all tasks for one pet (used in recurrence demo) |
-| `section(title)` | Prints a cyan divider line to separate output sections |
-| `_fmt(minutes)` | Converts minutes-since-midnight to `HH:MM` string |
-
-## 📸 Demo Walkthrough
-
-### UI Features
-
-The Streamlit app (`app.py`) gives you a single-page interface with three main areas:
-
-- **Owner & Pet Setup** — Enter the owner's name, daily time budget (minutes), and the hour their day starts. Add a pet with name, species, breed, and age. Resubmitting the form updates settings without wiping existing tasks.
-- **Add a Task** — Choose a title, duration, priority (HIGH / MEDIUM / LOW), deadline hour, and whether the task repeats (ONCE / DAILY / WEEKLY). Click "Add task" to attach it to the active pet.
-- **Task list** — All pending tasks for the active pet are shown in a table sorted chronologically by due time. If any two tasks have overlapping ideal windows, a conflict warning appears immediately below the table.
-- **Build Schedule** — Click "Generate schedule" to run the scheduler. The result shows a time-slotted table of scheduled tasks, a summary of minutes used vs. available, and a warning for each skipped task explaining whether it was dropped due to a missed deadline or an exhausted budget. A "Why was this plan chosen?" expander shows the full plain-English reasoning.
-
-### Example Workflow
-
-1. Set owner **Jordan**, 120 available minutes, day start at 08:00.
-2. Add pet **Mochi** (dog).
-3. Add task: *Morning walk*, 30 min, HIGH priority, due by 09:00, repeats DAILY.
-4. Add task: *Feeding*, 10 min, HIGH priority, due by 08:30, repeats ONCE.
-5. The task table re-renders sorted by due time — Feeding (08:30) appears above Morning walk (09:00).
-6. Click **Generate schedule**. The scheduler fits both tasks within the budget and slots them back-to-back starting at 08:00.
-7. After completing Morning walk in real life, calling `mark_task_complete` creates a new instance due tomorrow automatically — the DAILY recurrence is handled without any manual re-entry.
-
-### Key Scheduler Behaviors Shown
-
-| Behavior | What you see |
-|---|---|
-| Chronological sort (`sort_by_time`) | Task table always lists earliest deadlines first, regardless of the order tasks were added |
-| Priority + urgency sort (`_sort_tasks`) | HIGH priority tasks are placed first in the generated plan; a LOW priority task due within 60 min of day start is boosted one tier |
-| Conflict warnings (`detect_conflicts`) | A yellow `st.warning` appears under the task table when two tasks' ideal windows overlap |
-| Deadline skip | A skipped task's warning names the deadline it would have missed |
-| Budget skip | A skipped task's warning states the budget was exhausted |
-| Recurring tasks (`mark_task_complete`) | DAILY advances `due_date` by 1 day; WEEKLY by 7 days; ONCE produces no new task |
-
-### Sample CLI Output
-
-Running `python main.py` exercises the full backend without the UI:
-
-```
-===== Tasks as added (out of order) =====
-  Biscuit      Morning Walk         due 09:00  [pending]
-  Biscuit      Feeding              due 08:30  [pending]
-  Whiskers     Litter Box           due 10:00  [DONE]
-  Whiskers     Grooming             due 10:30  [pending]
-  Pebble       Enrichment           due 11:00  [pending]
-
-===== sort_by_time: earliest due first =====
-  Biscuit      Feeding              due 08:30  [pending]
-  Biscuit      Morning Walk         due 09:00  [pending]
-  Whiskers     Litter Box           due 10:00  [DONE]
-  Whiskers     Grooming             due 10:30  [pending]
-  Pebble       Enrichment           due 11:00  [pending]
-
-===== filter: pending tasks only =====
-  Biscuit      Morning Walk
-  Biscuit      Feeding
-  Whiskers     Grooming
-  Pebble       Enrichment
-
-===== filter: completed tasks only =====
-  Whiskers     Litter Box
-
-===== filter: Biscuit's tasks only =====
-  Biscuit      Morning Walk
-  Biscuit      Feeding
-
-===== filter: Biscuit's pending tasks (both filters combined) =====
-  Biscuit      Morning Walk
-  Biscuit      Feeding
-
-===== Today's Schedule =====
-  08:00 - 08:10  Biscuit      Feeding [HIGH]
-  08:10 - 08:40  Biscuit      Morning Walk [HIGH]
-  08:40 - 08:55  Whiskers     Grooming [MEDIUM]
-  08:55 - 09:15  Pebble       Enrichment [LOW]
-
-===== Recurrence: mark tasks complete =====
-
-  Completing 'Morning Walk' (DAILY) for Biscuit...
-  timedelta used: 1 day  ->  next due_date = 2026-06-28
-    Morning Walk           freq=daily    due_date=2026-06-27  [DONE]
-    Feeding                freq=once     due_date=2026-06-27  [pending]
-    Morning Walk           freq=daily    due_date=2026-06-28  [pending]
-
-  Completing 'Feeding' (ONCE) for Biscuit...
-  No recurrence — mark_task_complete returned: None
-    Morning Walk           freq=daily    due_date=2026-06-27  [DONE]
-    Feeding                freq=once     due_date=2026-06-27  [DONE]
-    Morning Walk           freq=daily    due_date=2026-06-28  [pending]
-
-  Completing 'Grooming' (WEEKLY) for Whiskers...
-  timedelta used: 7 days  ->  next due_date = 2026-07-04
-    Litter Box             freq=once     due_date=2026-06-27  [DONE]
-    Grooming               freq=weekly   due_date=2026-06-27  [DONE]
-    Grooming               freq=weekly   due_date=2026-07-04  [pending]
-
-===== Conflict Detection =====
-
-Tasks and their ideal windows:
-  Buddy    Vet Check        window [09:00 - 09:30]
-  Buddy    Evening Walk     window [17:30 - 18:00]
-  Luna     Bath Time        window [09:00 - 09:20]
-
-  WARNING: 'Vet Check' (Buddy) [09:00-09:30] overlaps with 'Bath Time' (Luna) [09:00-09:20]
-```
+The graded responsible-AI reflection — my collaboration process with AI, one helpful and one flawed AI suggestion, and this system's limitations — is in [`model_card.md`](model_card.md), not here.

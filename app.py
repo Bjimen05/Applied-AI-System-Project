@@ -1,9 +1,16 @@
+import logging
+
 import streamlit as st
 from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task, load_from_json
 from evaluator import Evaluator, Severity, safe_save_plan
 from retriever import Retriever
 from specialized_model import TaskClassifier, UrgencyTier
 from agent import PawPalAgent
+
+logging.basicConfig(
+    filename="pawpal.log", level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 retriever = Retriever()
 classifier = TaskClassifier(retriever=retriever)

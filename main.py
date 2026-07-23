@@ -1,3 +1,4 @@
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -13,6 +14,11 @@ from evaluator import Severity
 from retriever import Retriever
 from specialized_model import TaskClassifier
 from agent import PawPalAgent
+
+logging.basicConfig(
+    filename="pawpal.log", level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 retriever = Retriever()
 classifier = TaskClassifier(retriever=retriever)
