@@ -8,6 +8,9 @@ from tabulate import tabulate
 
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority, Frequency
 from evaluator import Evaluator, Severity, safe_save_plan
+from retriever import Retriever
+
+retriever = Retriever()
 
 colorama_init(autoreset=True)
 
@@ -240,6 +243,17 @@ if saved:
     print(Fore.GREEN + "  Plan saved to data.json." + Style.RESET_ALL)
 else:
     print(Fore.RED + "  Save BLOCKED by evaluator — plan not written to data.json." + Style.RESET_ALL)
+
+# ---------------------------------------------------------------------------
+# RAG: retrieve care-guide passages for today's scheduled tasks
+# ---------------------------------------------------------------------------
+
+section("RAG: care tips for today's plan")
+
+for e in plan.entries:
+    hits = retriever.retrieve_for_task(e.task.title, e.task.description, e.pet.species, top_k=1)
+    if hits:
+        print(f"  {Fore.CYAN}{e.task.title}{Style.RESET_ALL} ({e.pet.name}): {hits[0].document.text}")
 
 # ---------------------------------------------------------------------------
 # Recurrence demo

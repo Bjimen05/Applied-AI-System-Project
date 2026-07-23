@@ -15,11 +15,18 @@ from enum import Enum
 from pathlib import Path
 
 from pawpal_system import DailyPlan, Owner, Priority, SKIP_DEADLINE, save_to_json
+from retriever import RISK_CATEGORIES, Retriever
 
 HIGH_RISK_KEYWORDS = {
     "med", "meds", "medication", "medicine", "insulin", "dosage", "dose",
     "vet", "surgery", "injury", "injured", "allergy", "allergic", "emergency",
 }
+
+# Retrieval grounding threshold: minimum Jaccard overlap between a task's
+# title/description and a care-guide passage before it counts as evidence.
+GROUNDING_THRESHOLD = 0.12
+
+_retriever = Retriever()
 
 
 class Severity(Enum):
@@ -39,6 +46,16 @@ class Finding:
 def _is_high_risk(text: str) -> bool:
     lowered = text.lower()
     return any(keyword in lowered for keyword in HIGH_RISK_KEYWORDS)
+
+
+def _retrieval_risk_evidence(title: str, description: str, species: str) -> str | None:
+    """Return a grounding passage's text if RAG surfaces a medication/vet care
+    guide relevant to this task, even when no fixed keyword matched."""
+    hits = _retriever.retrieve_for_task(title, description, species, top_k=1)
+    for hit in hits:
+        if hit.document.category in RISK_CATEGORIES and hit.score >= GROUNDING_THRESHOLD:
+            return hit.document.text
+    return None
 
 
 class Evaluator:
@@ -112,6 +129,18 @@ class Evaluator:
                 ))
         return findings
 
+    def _assess_risk(self, pet, task) -> str | None:
+        """Return a Finding message suffix if this task is high-risk, combining
+        the fixed keyword list with RAG-grounded evidence from the knowledge
+        base. Returns None if neither signal fires."""
+        keyword_hit = _is_high_risk(task.title) or _is_high_risk(task.description)
+        evidence = _retrieval_risk_evidence(task.title, task.description, pet.species)
+        if not keyword_hit and not evidence:
+            return None
+        if evidence:
+            return f' Care-guide match: "{evidence}"'
+        return ""
+
     def _check_high_risk(self) -> list[Finding]:
         findings = []
         seen = set()
@@ -119,24 +148,26 @@ class Evaluator:
             key = (e.pet.name, e.task.title)
             if key in seen:
                 continue
-            if _is_high_risk(e.task.title) or _is_high_risk(e.task.description):
+            suffix = self._assess_risk(e.pet, e.task)
+            if suffix is not None:
                 seen.add(key)
                 findings.append(Finding(
                     "high_risk_task", Severity.WARNING,
                     f"'{e.task.title}' ({e.pet.name}) looks health/medication-related "
-                    f"and needs owner sign-off before the plan is saved.",
+                    f"and needs owner sign-off before the plan is saved.{suffix}",
                     requires_human_review=True,
                 ))
         for pet, task, _reason in self.plan.skipped_tasks:
             key = (pet.name, task.title)
             if key in seen:
                 continue
-            if _is_high_risk(task.title) or _is_high_risk(task.description):
+            suffix = self._assess_risk(pet, task)
+            if suffix is not None:
                 seen.add(key)
                 findings.append(Finding(
                     "high_risk_task_skipped", Severity.WARNING,
                     f"'{task.title}' ({pet.name}) is health/medication-related and was "
-                    f"SKIPPED — needs owner review before the plan is saved.",
+                    f"SKIPPED — needs owner review before the plan is saved.{suffix}",
                     requires_human_review=True,
                 ))
         return findings

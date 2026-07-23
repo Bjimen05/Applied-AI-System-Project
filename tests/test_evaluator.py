@@ -7,6 +7,8 @@ from pawpal_system import (
     SKIP_BUDGET, SKIP_DEADLINE, Task,
 )
 from evaluator import Evaluator, Severity, safe_save_plan
+import evaluator as evaluator_module
+from retriever import Document, Retriever
 
 
 def make_owner(available_minutes=120, day_start=480):
@@ -139,6 +141,46 @@ def test_high_risk_scheduled_task_requires_review():
     assert any(f.code == "high_risk_task" and f.requires_human_review for f in findings)
     assert Evaluator.passed(findings)
     assert Evaluator.requires_human_review(findings)
+
+
+def test_high_risk_grounded_by_retrieval_without_keyword_match(monkeypatch):
+    """A task with no HIGH_RISK_KEYWORDS hit should still be flagged when the
+    RAG layer finds a matching medication/vet care-guide passage."""
+    custom_doc = Document(
+        "test-med-1", "any", "medication",
+        "Ear drops must be given on a strict schedule after a recent visit",
+    )
+    monkeypatch.setattr(evaluator_module, "_retriever", Retriever([custom_doc]))
+
+    owner = make_owner()
+    pet = Pet(name="Biscuit", species="dog", breed="Mixed", age=3)
+    task = make_task(
+        "Ear Drops", 5, Priority.MEDIUM, due_time=600,
+        description="twice daily as directed by the clinic",
+    )
+    entry = ScheduledEntry(pet=pet, task=task, start_time=480, end_time=485)
+    plan = DailyPlan(owner=owner, date=str(date.today()), entries=[entry], skipped_tasks=[])
+
+    findings = Evaluator(plan).run()
+
+    assert any(
+        f.code == "high_risk_task" and f.requires_human_review and "Care-guide match" in f.message
+        for f in findings
+    )
+
+
+def test_no_risk_when_neither_keyword_nor_retrieval_match(monkeypatch):
+    monkeypatch.setattr(evaluator_module, "_retriever", Retriever([]))
+
+    owner = make_owner()
+    pet = Pet(name="Biscuit", species="dog", breed="Mixed", age=3)
+    task = make_task("Morning Walk", 30, Priority.HIGH, due_time=540)
+    entry = ScheduledEntry(pet=pet, task=task, start_time=480, end_time=510)
+    plan = DailyPlan(owner=owner, date=str(date.today()), entries=[entry], skipped_tasks=[])
+
+    findings = Evaluator(plan).run()
+
+    assert not any(f.code in ("high_risk_task", "high_risk_task_skipped") for f in findings)
 
 
 def test_high_risk_skipped_task_requires_review():

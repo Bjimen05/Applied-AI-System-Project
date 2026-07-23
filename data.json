@@ -17,7 +17,7 @@
           "due_time": 540,
           "completed": false,
           "frequency": "daily",
-          "due_date": "2026-07-22"
+          "due_date": "2026-07-23"
         },
         {
           "title": "Feeding",
@@ -27,7 +27,7 @@
           "due_time": 510,
           "completed": false,
           "frequency": "once",
-          "due_date": "2026-07-22"
+          "due_date": "2026-07-23"
         }
       ]
     },
@@ -45,7 +45,7 @@
           "due_time": 600,
           "completed": true,
           "frequency": "once",
-          "due_date": "2026-07-22"
+          "due_date": "2026-07-23"
         },
         {
           "title": "Grooming",
@@ -55,7 +55,7 @@
           "due_time": 630,
           "completed": false,
           "frequency": "weekly",
-          "due_date": "2026-07-22"
+          "due_date": "2026-07-23"
         }
       ]
     },
@@ -73,7 +73,7 @@
           "due_time": 660,
           "completed": false,
           "frequency": "once",
-          "due_date": "2026-07-22"
+          "due_date": "2026-07-23"
         }
       ]
     }

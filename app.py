@@ -1,6 +1,9 @@
 import streamlit as st
 from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task, load_from_json
 from evaluator import Evaluator, Severity, safe_save_plan
+from retriever import Retriever
+
+retriever = Retriever()
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -144,6 +147,21 @@ else:
                 st.warning(warning)
         else:
             st.success("No scheduling conflicts.")
+
+        # ---------------------------------------------------------------
+        # RAG — care-guide passages retrieved per pending task
+        # ---------------------------------------------------------------
+        with st.expander("📚 Care tips for these tasks"):
+            any_hit = False
+            for _, t in sorted_pending:
+                hits = retriever.retrieve_for_task(
+                    t.title, t.description, st.session_state.active_pet.species, top_k=1,
+                )
+                if hits:
+                    any_hit = True
+                    st.markdown(f"**{t.title}** — {hits[0].document.text}")
+            if not any_hit:
+                st.caption("No matching care-guide passages for these tasks yet.")
     else:
         st.info("No pending tasks yet — add one above.")
 
