@@ -71,3 +71,76 @@ Update main.py with two tasks scheduled at the same time and confirm that the sc
 I chosen Claude because it can explain what is the issue and how it will fix it, as well correct itself if it made a error, and verify it.
 
 <!-- Your conclusion -->
+
+---
+
+## Agentic Reasoning Trace (Stretch: Agentic Workflow Enhancement)
+
+> `PawPalAgent.run()` (in `agent.py`) performs multi-step reasoning with real tool calls — Scheduler, Evaluator, TaskClassifier, Retriever, and `safe_save_plan` — and decides what to do next based on each tool's output (repair, stop, or save). Every call is recorded as a `TraceStep` (step number, tool called, input, output, decision). Both traces below are the verbatim output of a script (`gen_traces.py`) that actually runs the agent and renders the trace with `tabulate` — see `tests/test_agent.py::test_agent_trace_records_repair_loop_steps` for the automated check that this structure holds.
+
+### Scenario 1 — priority-mismatch repair loop (owner: Priya)
+
+A MEDIUM, overdue "Grooming" task is initially skipped in favor of a HIGH "Walk" task with no time pressure. The agent notices the specialized model rates the skipped task as more urgent, promotes it, and re-plans — changing which task actually gets scheduled.
+
+**Phase 1 — generate & evaluate**
+
+|   Step | Tool Called             | Input                         | Output                               | Decision                           |
+|--------|-------------------------|-------------------------------|--------------------------------------|------------------------------------|
+|      1 | Scheduler.generate_plan | 2 pending task(s) for 'Priya' | 1 scheduled, 1 skipped               | Plan built — proceed to Evaluator. |
+|      2 | Evaluator.run           | plan with 1 entries           | 2 finding(s) (0 critical, 2 warning) | Attempt repair loop                |
+
+---
+
+**Phase 2 — repair loop**
+
+|   Step | Tool Called                           | Input                              | Output                                    | Decision                                    |
+|--------|---------------------------------------|------------------------------------|-------------------------------------------|---------------------------------------------|
+|      3 | TaskClassifier.classify (repair scan) | 1 skipped task(s) vs. 1 scheduled  | promoted ['Grooming'] to HIGH priority    | Re-run Scheduler.generate_plan (attempt 1). |
+|      4 | Scheduler.generate_plan (re-plan)     | ['Grooming'] now HIGH priority     | 1 scheduled, 1 skipped                    | Re-run Evaluator.                           |
+|      5 | Evaluator.run (re-check)              | re-planned entries after attempt 1 | 1 finding(s) remaining                    | Proceed to save gate.                       |
+|      6 | TaskClassifier.classify (repair scan) | 1 skipped task(s) vs. 1 scheduled  | No mismatch above the scheduled max score | No repair available — exit loop.            |
+
+---
+
+**Phase 3 — display & save**
+
+|   Step | Tool Called                                                     | Input               | Output                                 | Decision                         |
+|--------|-----------------------------------------------------------------|---------------------|----------------------------------------|----------------------------------|
+|      7 | Retriever.retrieve_for_task + TaskClassifier.classify (display) | 2 pending task(s)   | 0 care tip(s), 2 urgency assessment(s) | Attach to result for the UI/CLI. |
+|      8 | safe_save_plan                                                  | human_reviewed=True | saved=True                             | Done.                            |
+
+---
+**Result:** `Grooming` ends up scheduled instead of `Walk` — a real behavior change driven by the reasoning chain, not just a logged warning.
+
+---
+
+### Scenario 2 — high-risk task blocks save pending human review (owner: Sam)
+
+A "Vet Check" task is scheduled cleanly (no repair needed), but the Evaluator flags it as health-related, so the agent's save gate blocks persistence until a human explicitly approves it.
+
+**Phase 1 — generate & evaluate**
+
+|   Step | Tool Called             | Input                       | Output                               | Decision                                |
+|--------|-------------------------|-----------------------------|--------------------------------------|-----------------------------------------|
+|      1 | Scheduler.generate_plan | 1 pending task(s) for 'Sam' | 1 scheduled, 0 skipped               | Plan built — proceed to Evaluator.      |
+|      2 | Evaluator.run           | plan with 1 entries         | 1 finding(s) (0 critical, 1 warning) | No repair needed — proceed to save gate |
+
+---
+
+**Phase 2 — repair scan (no-op)**
+
+|   Step | Tool Called                           | Input                             | Output                                    | Decision                         |
+|--------|---------------------------------------|-----------------------------------|-------------------------------------------|----------------------------------|
+|      3 | TaskClassifier.classify (repair scan) | 0 skipped task(s) vs. 1 scheduled | No mismatch above the scheduled max score | No repair available — exit loop. |
+
+---
+
+**Phase 3 — display & save**
+
+|   Step | Tool Called                                                     | Input                | Output                                 | Decision                                        |
+|--------|-----------------------------------------------------------------|----------------------|----------------------------------------|-------------------------------------------------|
+|      4 | Retriever.retrieve_for_task + TaskClassifier.classify (display) | 1 pending task(s)    | 1 care tip(s), 1 urgency assessment(s) | Attach to result for the UI/CLI.                |
+|      5 | safe_save_plan                                                  | human_reviewed=False | saved=False                            | Blocked — needs a CRITICAL fix or human review. |
+
+---
+**Result:** nothing is written to disk until `agent.run(human_reviewed=True, ...)` is called again — the same trace structure, with step 5's output flipping to `saved=True`.

@@ -73,6 +73,51 @@ def test_agent_blocks_save_for_high_risk_task_until_human_reviewed(tmp_path):
     assert (tmp_path / "data.json").exists()
 
 
+def test_agent_trace_records_repair_loop_steps(tmp_path):
+    """Stretch: multi-step reasoning trace — each tool call the agent makes
+    (Scheduler, Evaluator, TaskClassifier, safe_save_plan) should appear as
+    its own TraceStep, in order, with the repair decision visible."""
+    owner = Owner(name="Test", available_minutes=15, day_start=480)
+    pet = Pet(name="Buddy", species="dog", breed="Mixed", age=3)
+    owner.add_pet(pet)
+
+    task_a = Task(title="Walk", description="", duration_minutes=15,
+                  priority=Priority.HIGH, due_time=700)
+    task_b = Task(title="Grooming", description="", duration_minutes=15,
+                  priority=Priority.MEDIUM, due_time=650)
+    task_b.due_date = date.today() - timedelta(days=1)
+    pet.add_task(task_a)
+    pet.add_task(task_b)
+
+    agent = PawPalAgent(owner, retriever=Retriever([]))
+    result = agent.run(save_path=str(tmp_path / "data.json"))
+
+    tools_called = [t.tool for t in result.trace]
+    assert "Scheduler.generate_plan" in tools_called
+    assert "Evaluator.run" in tools_called
+    assert any("repair scan" in t for t in tools_called)
+    assert "safe_save_plan" in tools_called
+    assert [t.step for t in result.trace] == sorted(t.step for t in result.trace)
+    assert any("promoted" in t.output_summary.lower() for t in result.trace)
+
+
+def test_trace_to_markdown_renders_a_table(tmp_path):
+    from agent import trace_to_markdown
+
+    owner = Owner(name="Test", available_minutes=60, day_start=480)
+    pet = Pet(name="Buddy", species="dog", breed="Mixed", age=3)
+    owner.add_pet(pet)
+    task = Task(title="Feeding", description="", duration_minutes=10,
+                priority=Priority.HIGH, due_time=540)
+    pet.add_task(task)
+
+    result = PawPalAgent(owner, retriever=Retriever([])).run(save_path=str(tmp_path / "data.json"))
+    md = trace_to_markdown(result.trace)
+
+    assert md.startswith("| Step | Tool Called |")
+    assert "Scheduler.generate_plan" in md
+
+
 def test_agent_result_includes_care_tips_and_assessments(tmp_path):
     owner = Owner(name="Test", available_minutes=60, day_start=480)
     pet = Pet(name="Buddy", species="rabbit", breed="Mixed", age=2)
