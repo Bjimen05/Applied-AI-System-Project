@@ -183,6 +183,33 @@ def test_no_risk_when_neither_keyword_nor_retrieval_match(monkeypatch):
     assert not any(f.code in ("high_risk_task", "high_risk_task_skipped") for f in findings)
 
 
+def test_model_priority_mismatch_flags_overdue_medium_over_declared_high():
+    """A MEDIUM task that's overdue can out-score a scheduled HIGH task in the
+    specialized model's continuous ranking — the fixed priority_inversion
+    check (which only compares raw Priority enums) can't see this."""
+    owner = make_owner(day_start=480)
+    pet = Pet(name="Biscuit", species="dog", breed="Mixed", age=3)
+
+    scheduled_high = make_task("Walk", 30, Priority.HIGH, due_time=1200)  # far off, low time pressure
+    overdue_medium = make_task("Grooming", 15, Priority.MEDIUM, due_time=485)
+    overdue_medium.due_date = date.today() - timedelta(days=3)
+
+    entry = ScheduledEntry(pet=pet, task=scheduled_high, start_time=480, end_time=510)
+    plan = DailyPlan(
+        owner=owner, date=str(date.today()),
+        entries=[entry],
+        skipped_tasks=[(pet, overdue_medium, SKIP_BUDGET)],
+    )
+
+    findings = Evaluator(plan, today=date.today()).run()
+
+    mismatch = [f for f in findings if f.code == "model_priority_mismatch"]
+    assert mismatch
+    assert mismatch[0].severity == Severity.WARNING
+    # priority_inversion only fires for HIGH-priority skips, so it should NOT catch this
+    assert not any(f.code == "priority_inversion" for f in findings)
+
+
 def test_high_risk_skipped_task_requires_review():
     owner = make_owner()
     pet = Pet(name="Biscuit", species="dog", breed="Mixed", age=3)

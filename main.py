@@ -9,8 +9,10 @@ from tabulate import tabulate
 from pawpal_system import Owner, Pet, Task, Scheduler, Priority, Frequency
 from evaluator import Evaluator, Severity, safe_save_plan
 from retriever import Retriever
+from specialized_model import TaskClassifier
 
 retriever = Retriever()
+classifier = TaskClassifier(retriever=retriever)
 
 colorama_init(autoreset=True)
 
@@ -254,6 +256,21 @@ for e in plan.entries:
     hits = retriever.retrieve_for_task(e.task.title, e.task.description, e.pet.species, top_k=1)
     if hits:
         print(f"  {Fore.CYAN}{e.task.title}{Style.RESET_ALL} ({e.pet.name}): {hits[0].document.text}")
+
+# ---------------------------------------------------------------------------
+# Specialized model: structured urgency assessment for today's tasks
+# ---------------------------------------------------------------------------
+
+section("Specialized model: task urgency assessment")
+
+model_rows = []
+for pet, task in scheduler.collect_tasks():
+    assessment = classifier.classify(task, pet, alex.day_start)
+    model_rows.append([
+        f"{species_icon(pet.species)} {pet.name}", task.title,
+        assessment.urgency_tier.value.upper(), f"{assessment.urgency_score:.0f}/100",
+    ])
+print(tabulate(model_rows, headers=["Pet", "Task", "Urgency Tier", "Score"], tablefmt="simple_outline"))
 
 # ---------------------------------------------------------------------------
 # Recurrence demo

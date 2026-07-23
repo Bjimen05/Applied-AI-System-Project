@@ -16,6 +16,7 @@ from pathlib import Path
 
 from pawpal_system import DailyPlan, Owner, Priority, SKIP_DEADLINE, save_to_json
 from retriever import RISK_CATEGORIES, Retriever
+from specialized_model import TaskClassifier, UrgencyTier
 
 HIGH_RISK_KEYWORDS = {
     "med", "meds", "medication", "medicine", "insulin", "dosage", "dose",
@@ -72,6 +73,7 @@ class Evaluator:
         findings.extend(self._check_priority_inversion())
         findings.extend(self._check_high_risk())
         findings.extend(self._check_overdue())
+        findings.extend(self._check_model_priority_mismatch())
         return findings
 
     def _check_integrity(self) -> list[Finding]:
@@ -127,6 +129,36 @@ class Evaluator:
                     f"HIGH priority task '{task.title}' ({pet.name}) was skipped while "
                     f"lower-priority task(s) were scheduled ahead of it.",
                 ))
+        return findings
+
+    def _check_model_priority_mismatch(self) -> list[Finding]:
+        """Use the specialized TaskClassifier's continuous urgency score to
+        catch skips the raw Priority enum can't see — e.g. a MEDIUM task
+        that's overdue and health-related but got skipped for budget reasons
+        while a plain HIGH task was scheduled instead."""
+        classifier = TaskClassifier(retriever=_retriever, today=self.today)
+        findings = []
+        owner = self.plan.owner
+
+        scheduled_scores = [
+            classifier.classify(e.task, e.pet, owner.day_start).urgency_score
+            for e in self.plan.entries
+        ]
+        max_scheduled = max(scheduled_scores, default=0.0)
+
+        for pet, task, _reason in self.plan.skipped_tasks:
+            assessment = classifier.classify(task, pet, owner.day_start)
+            if assessment.urgency_tier not in (UrgencyTier.URGENT, UrgencyTier.CRITICAL):
+                continue
+            if assessment.urgency_score <= max_scheduled:
+                continue
+            findings.append(Finding(
+                "model_priority_mismatch", Severity.WARNING,
+                f"Specialized model rates '{task.title}' ({pet.name}) as "
+                f"{assessment.urgency_tier.value.upper()} ({assessment.urgency_score:.0f}/100) "
+                f"but it was skipped while lower-scored tasks were scheduled. {assessment.rationale}",
+                requires_human_review=(assessment.urgency_tier == UrgencyTier.CRITICAL),
+            ))
         return findings
 
     def _assess_risk(self, pet, task) -> str | None:

@@ -2,8 +2,17 @@ import streamlit as st
 from pawpal_system import Frequency, Owner, Pet, Priority, Scheduler, Task, load_from_json
 from evaluator import Evaluator, Severity, safe_save_plan
 from retriever import Retriever
+from specialized_model import TaskClassifier, UrgencyTier
 
 retriever = Retriever()
+classifier = TaskClassifier(retriever=retriever)
+
+TIER_ICON = {
+    UrgencyTier.ROUTINE: "🟢",
+    UrgencyTier.SOON: "🟡",
+    UrgencyTier.URGENT: "🟠",
+    UrgencyTier.CRITICAL: "🔴",
+}
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -162,6 +171,15 @@ else:
                     st.markdown(f"**{t.title}** — {hits[0].document.text}")
             if not any_hit:
                 st.caption("No matching care-guide passages for these tasks yet.")
+
+        # -----------------------------------------------------------------
+        # Specialized model — structured urgency assessment per task
+        # -----------------------------------------------------------------
+        with st.expander("🎯 Model urgency assessment"):
+            for _, t in sorted_pending:
+                assessment = classifier.classify(t, st.session_state.active_pet, st.session_state.owner.day_start)
+                icon = TIER_ICON[assessment.urgency_tier]
+                st.markdown(f"{icon} **{t.title}** — {assessment.rationale}")
     else:
         st.info("No pending tasks yet — add one above.")
 
