@@ -28,3 +28,27 @@ I worked with Claude iteratively: I set the scope and constraints (offline-only,
 **Helpful suggestion:** When building the agent's repair loop, Claude reused the same scoring logic already written for the Evaluator's `model_priority_mismatch` check instead of writing a second, parallel version — keeping the "what counts as a mismatch" rule in exactly one place so the two components can't quietly disagree.
 
 **Flawed suggestion:** Claude's first test scenario for the agent's repair loop assumed a task due shortly after the day start would get skipped for running out of *budget*. It actually failed for a different reason — it physically couldn't finish before its own deadline (a "deadline skip," not a "budget skip"), so promoting its priority didn't change anything and the test failed. Claude had to debug why, then redesign the task's due time so the skip was really budget-driven. It was a useful mistake — it exposed that "priority mismatch" and "infeasible deadline" are different problems, and promoting priority only fixes the first one.
+
+## Specialized Model vs. Baseline (Stretch: Fine-Tuning/Specialization)
+
+`specialization_eval.py` runs a synthetic set of 10 tasks through two things: a naive **baseline** that maps declared `Priority` straight to an urgency label (HIGH→critical, MEDIUM→soon, LOW→routine, ignoring everything else), and the specialized `TaskClassifier`, which blends priority with deadline pressure, overdue status, and RAG-flagged risk into a continuous 0–100 score. Real output from running the script:
+
+| Task | Priority | Baseline | Specialized | Score | Agreement |
+|---|---|---|---|---|---|
+| Feeding | HIGH | critical | critical | 99/100 | match |
+| Grooming (overdue) | MEDIUM | soon | urgent | 82/100 | **DIFFERS** |
+| Enrichment | LOW | routine | routine | 20/100 | match |
+| Afternoon walk | MEDIUM | soon | urgent | 68/100 | **DIFFERS** |
+| Evening walk | HIGH | critical | urgent | 70/100 | **DIFFERS** |
+| Vet Check | MEDIUM | soon | urgent | 76/100 | **DIFFERS** |
+| Litter box (overdue) | LOW | routine | soon | 57/100 | **DIFFERS** |
+| Insulin dose | HIGH | critical | critical | 100/100 | match |
+| Brushing | MEDIUM | soon | urgent | 68/100 | **DIFFERS** |
+| Nail trim | LOW | routine | soon | 43/100 | **DIFFERS** |
+
+**Agreement: 3/10 (30%).** The disagreements are the specialized model correcting two specific blind spots the baseline can't see at all:
+
+- **"Evening walk" (HIGH, due in 12 hours):** the baseline calls every HIGH task "critical" regardless of timing. The specialized model recognizes 12 hours of slack means it isn't actually urgent yet (70/100, "urgent" not "critical") — a measurable, deliberate *downgrade* from the naive baseline, not just an upgrade.
+- **"Litter box (overdue)" (LOW, 2 days overdue) and "Grooming (overdue)" (MEDIUM, 3 days overdue):** the baseline never elevates a LOW or MEDIUM task no matter how overdue it is. The specialized model adds an overdue bonus, correctly promoting both above where a static priority label would leave them (57/100 and 82/100 respectively).
+
+This is the same scoring logic the Evaluator's `model_priority_mismatch` check and the Agent's repair loop already depend on — it isn't a one-off demo number, it's the same behavior that changes which tasks get scheduled (see `ai_interactions.md`'s Priya scenario).
