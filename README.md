@@ -100,34 +100,110 @@ Run the test suite:
 python -m pytest tests/ -v
 ```
 
-## Sample Interactions
-
-**1. Clean plan — evaluator passes, agent auto-saves**
-```
-🤖 Generated a candidate plan with the Scheduler.
-🤖 Saved the plan.
-08:00 – 08:10  Biscuit  Feeding       [HIGH]
-08:10 – 08:40  Biscuit  Morning Walk  [HIGH]
-✅ Evaluator: no issues found.
-Plan saved to data.json.
+Run the stretch-feature evaluation scripts (see [Sample Interactions](#sample-interactions--execution-evidence) for real output):
+```bash
+python test_harness.py          # end-to-end scenario PASS/FAIL summary
+python specialization_eval.py   # specialized model vs. naive baseline
+python gen_traces.py            # regenerates the agent reasoning traces in ai_interactions.md
 ```
 
-**2. Health-related task — blocked until a human signs off**
+## Sample Interactions & Execution Evidence
+
+All output below is real, copy-pasted from actually running these commands against the current code — not hand-written. Re-run any of them yourself with the commands shown.
+
+### 1. End-to-end run — `python main.py`
+
+**Input:** the built-in demo data — owner "Alex" (120 min budget, day starts 08:00) with 3 pets and 5 tasks (Morning Walk, Feeding, Litter Box, Grooming, Enrichment), defined at the top of `main.py`.
+
+**Output — the agent builds a plan, the Evaluator passes it, RAG surfaces care tips, and the specialized model scores each task's urgency:**
+
 ```
-[🩺 REVIEW] 'Vet Check' (Buddy) looks health/medication-related and needs
-owner sign-off before the plan is saved. Care-guide match: "Annual wellness
-exams help catch issues early..."
-Save BLOCKED (not yet reviewed).
-Saved after human review.
+──── Agent: building today's plan ──────────────────────
+  🤖 Generated a candidate plan with the Scheduler.
+  🤖 Saved the plan.
+
+╭───────────────┬────────────┬──────────────┬────────────┬────────────╮
+│ Time Slot     │ Pet        │ Task         │ Priority   │ Duration   │
+├───────────────┼────────────┼──────────────┼────────────┼────────────┤
+│ 08:00 – 08:10 │ 🐕 Biscuit  │ Feeding      │ 🔴 HIGH     │ 10 min     │
+│ 08:10 – 08:40 │ 🐕 Biscuit  │ Morning Walk │ 🔴 HIGH     │ 30 min     │
+│ 08:40 – 08:55 │ 🐈 Whiskers │ Grooming     │ 🟡 MED      │ 15 min     │
+│ 08:55 – 09:15 │ 🐇 Pebble   │ Enrichment   │ 🟢 LOW      │ 20 min     │
+╰───────────────┴────────────┴──────────────┴────────────┴────────────╯
+  Total: 75 / 120 min used
+
+  ✅ Evaluator: no issues found.
+  Plan saved to data.json.
+
+  Care tips (RAG):
+    Morning Walk: Dogs generally need 30 to 60 minutes of physical exercise daily; skipping walks can lead to destructive behavior and weight gain.
+    Feeding: Beagles are a breed especially prone to overeating and obesity, so measured portions matter more for them than free-feeding kibble.
+    Grooming: Long-haired cats need daily brushing to prevent mats and hairballs; short-haired cats can be brushed weekly.
+    Enrichment: Rabbits are prey animals that need daily free-roam or exercise time and enrichment like tunnels and chew toys to stay mentally healthy.
+
+  Model urgency assessment:
+┌──────────────┬────────────────┬─────────┐
+│ Task         │ Urgency Tier   │ Score   │
+├──────────────┼────────────────┼─────────┤
+│ Morning Walk │ CRITICAL       │ 95/100  │
+│ Feeding      │ CRITICAL       │ 98/100  │
+│ Grooming     │ SOON           │ 62/100  │
+│ Enrichment   │ ROUTINE        │ 35/100  │
+└──────────────┴────────────────┴─────────┘
 ```
 
-**3. Agent repairs a priority mismatch — schedule outcome actually changes**
+**What this demonstrates:** the full pipeline running end-to-end — Scheduler → Evaluator → RAG → specialized model — on one command, with no errors and a plan actually written to `data.json`.
+
+### 2. Reliability/guardrail behavior — health-related task blocks the save
+
+**Input:** owner "Sam" with pet "Buddy" and one task, "Vet Check" (HIGH priority, 30 min), from the same `python main.py` run.
+
+**Output:**
 ```
-🤖 Attempt 1: the model rated Grooming as more urgent than what got scheduled,
-   so the agent promoted it to HIGH priority and re-planned.
-Scheduled: ['Grooming']          # was ['Walk'] before the repair
-'Grooming' priority is now: HIGH
+──── Agent: 'Vet Check' requires human sign-off before saving 
+  [🩺 REVIEW] 'Vet Check' (Buddy) looks health/medication-related and needs owner sign-off before the plan is saved. Care-guide match: "Annual wellness exams help catch issues early; puppies and senior dogs may need checkups twice a year."
+  Save BLOCKED (not yet reviewed).
+  Saved after human review.
 ```
+
+**What this demonstrates:** the Evaluator's guardrail actually prevents `data.json` from being written (`agent.run(human_reviewed=False, ...)`) until a second call passes `human_reviewed=True` — a real block, not just a printed warning.
+
+### 3. Agentic behavior — the repair loop changes which task gets scheduled
+
+**Input:** owner "Priya" with pet "Max", two competing tasks that don't both fit in a 15-minute budget: "Walk" (HIGH, due in 3h40m — no time pressure) and "Grooming" (MEDIUM, due in 2h50m, but 1 day *overdue*).
+
+**Output:**
+```
+──── Agent: repairing a priority mismatch ──────────────
+  🤖 Generated a candidate plan with the Scheduler.
+  🤖 Attempt 1: the model rated Grooming as more urgent than what got scheduled, so the agent promoted it to HIGH priority and re-planned.
+  🤖 Saved the plan.
+  Scheduled: ['Grooming']
+  'Grooming' priority is now: HIGH
+```
+
+**What this demonstrates:** without the agent, the Scheduler would have picked "Walk" (declared HIGH beats declared MEDIUM). The agent's decision loop overrides that using the specialized model's continuous urgency score — the schedule's actual output changes, not just a log message.
+
+### 4. Evaluation harness — `python test_harness.py`
+
+**Input:** none (self-contained; builds 5 fixed scenarios internally, listed in the "Scenario" column below).
+
+**Output:**
+```
+╭───────────────────────────────────────────────────────┬──────────╮
+│ Scenario                                              │ Result   │
+├───────────────────────────────────────────────────────┼──────────┤
+│ Clean plan auto-saves with no findings                │ PASS     │
+│ Risky task blocks then saves after human review       │ PASS     │
+│ Manually-built over-budget plan blocks on CRITICAL    │ PASS     │
+│ Agent repair loop reschedules the higher-urgency task │ PASS     │
+│ Retrieval grounds a care tip for a scheduled task     │ PASS     │
+╰───────────────────────────────────────────────────────┴──────────╯
+
+5/5 scenarios passed.
+```
+
+**What this demonstrates:** an independent, non-pytest evaluation script confirming end-to-end observable behavior (not just internals) — see [Testing Summary](#testing-summary) for the specialized-model-vs-baseline comparison (`python specialization_eval.py`) and the full automated-test/logging/human-evaluation evidence.
 
 ## Design Decisions
 
